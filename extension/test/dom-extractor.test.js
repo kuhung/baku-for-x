@@ -6,6 +6,9 @@ const {
   DEFAULT_FLYWHEEL_URL,
   DEFAULT_AI_BASE_URL,
   DEFAULT_AI_MODEL,
+  BAKU_STAGES,
+  getBakuStageIndex,
+  resolveBakuStage,
   normalizeHandle,
   normalizeBadgeMode,
   normalizeSettings,
@@ -498,5 +501,48 @@ test('paintToolbarCornerCount renders crisp celadon glyphs strictly within safe 
     assert.equal(res.label, expectedLabel);
     assert.ok(res.bounds.minX >= 1 && res.bounds.maxX <= 5);
     assert.ok(res.bounds.minY >= 1 && res.bounds.maxY <= 5);
+  }
+});
+
+test('BAKU_STAGES, getBakuStageIndex, and resolveBakuStage handle all 5 stage boundaries cleanly', () => {
+  assert.equal(BAKU_STAGES.length, 5);
+  assert.deepEqual(
+    BAKU_STAGES.map((s) => s.minCount),
+    [0, 10, 100, 500, 2500]
+  );
+
+  assert.equal(getBakuStageIndex('fawn'), 0);
+  assert.equal(getBakuStageIndex('scout'), 1);
+  assert.equal(getBakuStageIndex('baku'), 2);
+  assert.equal(getBakuStageIndex('sage'), 3);
+  assert.equal(getBakuStageIndex('astral'), 4);
+  assert.equal(getBakuStageIndex('unknown'), -1);
+  assert.equal(getBakuStageIndex(''), -1);
+  assert.equal(getBakuStageIndex(null), -1);
+
+  const cases = [
+    [undefined, 'fawn', 1, 0, 'scout', 10, 0, false],
+    [-5, 'fawn', 1, 0, 'scout', 10, 0, false],
+    [0, 'fawn', 1, 0, 'scout', 10, 0, false],
+    [9, 'fawn', 1, 0, 'scout', 1, 0.9, false],
+    [10, 'scout', 2, 1, 'baku', 90, 0, false],
+    [99, 'scout', 2, 1, 'baku', 1, 89 / 90, false],
+    [100, 'baku', 3, 2, 'sage', 400, 0, false],
+    [499, 'baku', 3, 2, 'sage', 1, 399 / 400, false],
+    [500, 'sage', 4, 3, 'astral', 2000, 0, false],
+    [2499, 'sage', 4, 3, 'astral', 1, 1999 / 2000, false],
+    [2500, 'astral', 5, 4, null, 0, 1, true],
+    [9999, 'astral', 5, 4, null, 0, 1, true],
+  ];
+
+  for (const [count, expectedId, expectedLevel, expectedIdx, nextId, expectedRemaining, expectedProgress, isMax] of cases) {
+    const res = resolveBakuStage(count);
+    assert.equal(res.stage.id, expectedId, `count=${count}`);
+    assert.equal(res.stage.level, expectedLevel);
+    assert.equal(res.index, expectedIdx);
+    assert.equal(res.nextStage ? res.nextStage.id : null, nextId);
+    assert.equal(res.remaining, expectedRemaining);
+    assert.equal(res.isMax, isMax);
+    assert.ok(Math.abs(res.progress - expectedProgress) < 1e-9, `progress mismatch for count=${count}`);
   }
 });

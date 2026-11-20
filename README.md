@@ -10,13 +10,21 @@
 
 ## 安装
 
+### Chrome 应用商店（推荐）
+
+前往 Chrome 应用商店一键安装：**[Baku 静貘 for X](https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad)**
+
+安装后打开 `https://x.com` 即可生效（默认已接入公共共享服务，零配置开箱可用）。
+
+### 从源码加载（开发者模式）
+
 ```bash
 git clone https://github.com/kuhung/baku-for-x.git
 ```
 
 1. Chrome 打开 `chrome://extensions/`，开启右上角「开发者模式」。
 2. 点击「加载已解压的扩展程序」，选择仓库里的 `extension` 目录。
-3. 打开 `https://x.com` 即可生效（默认已接入公共共享服务，零配置开箱可用）。
+3. 打开 `https://x.com` 即可生效。
 
 ---
 
@@ -24,6 +32,7 @@ git clone https://github.com/kuhung/baku-for-x.git
 
 - **安静拦截**：默认无痕隐藏命中的 Slop，仅在工具栏图标静默报数；也可在管理台切换为毛玻璃遮罩、原生右下角标或纯静默图标。
 - **一键吞帖**：在推文底部操作栏单击静貘小图标即可收起单条水帖，底部提示条提供「拉黑 `@账号`」与「撤销」；右键图标可展开完整操作菜单。
+- **阶段伴侣**：弹窗里的静貘会按本机累计拦截条数从「幼貘」逐步成长到「栖星」（`0 / 10 / 100 / 500 / 2,500` 五阶段，阶段只升不降），并在管理台顶栏同步显示当前阶段。
 - **随时纠错**：遇到误拦时，在弹窗「最近拦截」或遮罩条点击「放行」或「信任账号」，立即恢复并加入白名单。
 - **管理台**：点弹窗里的「打开管理台」可以搜索最近拦截记录、导入导出黑白名单 JSON（`baku-lists-*.json`）、调整扫描范围（仅评论区与引用 / 全部时间线），或填入自有接口密钥在浏览器端直连判别（BYOK）。
 
@@ -83,6 +92,7 @@ npm run logs                 # 查看线上最近判别审计日志与灰区分�
 ## 品牌视觉与素材
 
 - 视觉规范与明暗双色系统：[`docs/brand-guidelines.md`](docs/brand-guidelines.md)
+- 五阶段演化设定图：[`docs/assets/baku-stages-sheet.png`](docs/assets/baku-stages-sheet.png)（单阶原稿位于 [`docs/assets/stages/`](docs/assets/stages)）
 - 图标与商店素材：[`docs/assets/baku-icon.png`](docs/assets/baku-icon.png)、[`docs/assets/baku-store-promo-1280x800.png`](docs/assets/baku-store-promo-1280x800.png)、[`docs/assets/baku-store-tile-440x280.png`](docs/assets/baku-store-tile-440x280.png)
 
 ---

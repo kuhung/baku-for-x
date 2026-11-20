@@ -566,3 +566,45 @@ test('UNDO_ALLOW_TWEET and UNDO_WHITELIST_ACCOUNT restore lists, recent entries,
   assert.deepEqual(dash.remoteBlacklist, ['repeat_bot']);
   assert.equal(dash.recentIntercepted.some((e) => e.tweetId === 't_bl_2'), true);
 });
+
+test('MARK_STAGE_SEEN persists lastSeenStageId monotonically, rejects invalid IDs, and handles upgraded existing stats', async () => {
+  const chromeApi = createMockChrome({
+    [STORAGE_KEYS.STATS]: {
+      filteredCount: 640,
+      mode: 'remote',
+      backendOnline: true,
+    },
+  });
+  const ctrl = createBackgroundController({ chromeApi, defaultFlywheelUrl: '' });
+
+  // Upgrading user starts with empty lastSeenStageId while preserving existing filteredCount
+  let state = await ctrl.handleMessage({ type: 'GET_STATE' });
+  assert.equal(state.stats.filteredCount, 640);
+  assert.equal(state.stats.lastSeenStageId, '');
+
+  // Invalid stageId is rejected cleanly without touching storage
+  const badRes = await ctrl.handleMessage({ type: 'MARK_STAGE_SEEN', payload: { stageId: 'nonexistent' } });
+  assert.equal(badRes.ok, false);
+
+  // Advances to 'sage'
+  const firstSeen = await ctrl.handleMessage({ type: 'MARK_STAGE_SEEN', payload: { stageId: 'sage' } });
+  assert.equal(firstSeen.ok, true);
+  assert.equal(firstSeen.updated, true);
+  assert.equal(firstSeen.lastSeenStageId, 'sage');
+
+  // Cannot regress back to 'fawn' or re-mark 'sage'
+  const regressRes = await ctrl.handleMessage({ type: 'MARK_STAGE_SEEN', payload: { stageId: 'fawn' } });
+  assert.equal(regressRes.ok, true);
+  assert.equal(regressRes.updated, false);
+  assert.equal(regressRes.lastSeenStageId, 'sage');
+
+  // Advances from 'sage' to 'astral'
+  const maxRes = await ctrl.handleMessage({ type: 'MARK_STAGE_SEEN', payload: { stageId: 'astral' } });
+  assert.equal(maxRes.ok, true);
+  assert.equal(maxRes.updated, true);
+  assert.equal(maxRes.lastSeenStageId, 'astral');
+
+  state = await ctrl.handleMessage({ type: 'GET_STATE' });
+  assert.equal(state.stats.lastSeenStageId, 'astral');
+  assert.equal(state.stats.filteredCount, 640);
+});

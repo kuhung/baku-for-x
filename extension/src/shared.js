@@ -924,11 +924,118 @@
     };
   }
 
+  const BAKU_STAGES = [
+    {
+      id: 'fawn',
+      level: 1,
+      name: '幼貘',
+      enName: 'Fawn',
+      minCount: 0,
+      asset: 'assets/stages/baku-stage-1.webp',
+      tagline: '刚醒来，正学着认出第一批水帖',
+      petLines: [
+        '幼貘晃了晃白边小耳',
+        '刚醒不久，正等你带它去逛 X',
+        '小小一团，先把眼前的水帖认熟',
+      ],
+    },
+    {
+      id: 'scout',
+      level: 2,
+      name: '寻貘',
+      enName: 'Scout',
+      minCount: 10,
+      asset: 'assets/stages/baku-stage-2.webp',
+      tagline: '褪去幼斑，顺着评论区寻味清帖',
+      petLines: [
+        '寻貘伸长鼻子嗅了嗅时间线',
+        '斑点褪净，已经认得出水帖气味',
+        '四足落地，正稳步巡视评论区',
+      ],
+    },
+    {
+      id: 'baku',
+      level: 3,
+      name: '静貘',
+      enName: 'Baku',
+      minCount: 100,
+      asset: 'assets/stages/baku-stage-3.webp',
+      tagline: '黑白成体，静默守候你的时间线',
+      petLines: [
+        '静貘闭目点点头，一切照常清净',
+        '不弹提示，只把噪声安静收走',
+        '守着时间线，只留真正在说话的人',
+      ],
+    },
+    {
+      id: 'sage',
+      level: 4,
+      name: '禅貘',
+      enName: 'Sage',
+      minCount: 500,
+      asset: 'assets/stages/baku-stage-4.webp',
+      tagline: '吞帖数百，云气渐生，宠辱不惊',
+      petLines: [
+        '禅貘吐出一缕霁青清风',
+        '吃过数百条水帖，早已见怪不怪',
+        '肩起云纹，嘈杂评论区照样安稳',
+      ],
+    },
+    {
+      id: 'astral',
+      level: 5,
+      name: '栖星',
+      enName: 'Astral',
+      minCount: 2500,
+      asset: 'assets/stages/baku-stage-5.webp',
+      tagline: '踏云栖星，万帖过眼，只留真话',
+      petLines: [
+        '栖星微微颔首，时间线已如静水',
+        '踏云而坐，千百杂念皆化作星尘',
+        '已至终态，继续替你守住这片清净',
+      ],
+    },
+  ];
+
+  function getBakuStageIndex(stageId) {
+    if (typeof stageId !== 'string' || !stageId) return -1;
+    return BAKU_STAGES.findIndex((s) => s.id === stageId);
+  }
+
+  function resolveBakuStage(filteredCount = 0) {
+    const num = Number(filteredCount);
+    const count = Number.isFinite(num) ? Math.max(0, Math.floor(num)) : 0;
+    let index = 0;
+    for (let i = 0; i < BAKU_STAGES.length; i += 1) {
+      if (count >= BAKU_STAGES[i].minCount) index = i;
+    }
+    const stage = BAKU_STAGES[index];
+    const nextStage = index + 1 < BAKU_STAGES.length ? BAKU_STAGES[index + 1] : null;
+    const isMax = !nextStage;
+    const remaining = nextStage ? Math.max(0, nextStage.minCount - count) : 0;
+    const progress = nextStage
+      ? Math.max(0, Math.min(1, (count - stage.minCount) / (nextStage.minCount - stage.minCount)))
+      : 1;
+
+    return {
+      stage,
+      index,
+      count,
+      nextStage,
+      isMax,
+      remaining,
+      progress,
+    };
+  }
+
   const exported = {
     DEFAULT_FLYWHEEL_URL,
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
     DEFAULT_SETTINGS,
+    BAKU_STAGES,
+    getBakuStageIndex,
+    resolveBakuStage,
     normalizeDisplayMode,
     normalizeBadgeMode,
     normalizeAiScanScope,

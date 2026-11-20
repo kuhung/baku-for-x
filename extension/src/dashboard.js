@@ -7,6 +7,7 @@
     DEFAULT_AI_MODEL,
     describeRuntimeStatus,
     describeInterceptEntry,
+    resolveBakuStage,
     normalizeDisplayMode,
     normalizeBadgeMode,
     normalizeAiScanScope,
@@ -91,7 +92,13 @@
     if (!dashData) return;
     const { settings, effectiveFlywheelUrl, stats, blacklistCount = 0 } = dashData;
 
-    document.getElementById('topbarSummary').textContent = `累计拦截 ${stats?.filteredCount || 0} 条`;
+    const filtered = stats?.filteredCount || 0;
+    const stageInfo = resolveBakuStage(filtered);
+    const summaryEl = document.getElementById('topbarSummary');
+    summaryEl.textContent = `${stageInfo.stage.name} · 累计拦截 ${filtered} 条`;
+    summaryEl.title = stageInfo.nextStage
+      ? `${stageInfo.stage.name}（${stageInfo.stage.enName}）· ${stageInfo.stage.tagline} · 再吞 ${stageInfo.remaining} 条进入${stageInfo.nextStage.name}`
+      : `${stageInfo.stage.name}（${stageInfo.stage.enName}）· ${stageInfo.stage.tagline}`;
 
     const statusBtn = document.getElementById('topbarStatusBtn');
     const statusText = document.getElementById('topbarStatusText');

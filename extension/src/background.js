@@ -13,6 +13,7 @@ if (typeof importScripts === 'function') {
     shouldQueryAiClassifier,
     classifyWithAi,
     paintToolbarCornerCount,
+    getBakuStageIndex,
   } = rootScope.AntiSlopShared;
 
   const TOOLBAR_ICON_PATHS = {
@@ -102,6 +103,10 @@ if (typeof importScripts === 'function') {
       lastError: prev.lastError || '',
       remoteBlacklistCount: Number(prev.remoteBlacklistCount || 0),
       remoteSlopPostCount: Number(prev.remoteSlopPostCount || 0),
+      lastSeenStageId:
+        typeof prev.lastSeenStageId === 'string' && getBakuStageIndex(prev.lastSeenStageId) >= 0
+          ? prev.lastSeenStageId
+          : '',
     };
   }
 
@@ -1417,6 +1422,24 @@ if (typeof importScripts === 'function') {
       };
     }
 
+    async function markStageSeen({ stageId = '' } = {}) {
+      const nextIdx = getBakuStageIndex(stageId);
+      if (nextIdx < 0) {
+        return { ok: false, error: 'Invalid stageId' };
+      }
+      return withStorageLock(async () => {
+        const res = await getStorage([STORAGE_KEYS.STATS]);
+        const stats = buildDefaultStats(res[STORAGE_KEYS.STATS]);
+        const prevIdx = getBakuStageIndex(stats.lastSeenStageId);
+        const updated = nextIdx > prevIdx;
+        if (updated) {
+          stats.lastSeenStageId = stageId;
+          await setStorage({ [STORAGE_KEYS.STATS]: stats });
+        }
+        return { ok: true, lastSeenStageId: stats.lastSeenStageId, updated, stats };
+      });
+    }
+
     const MESSAGE_HANDLERS = {
       GET_STATE: () => getState(),
       GET_DASHBOARD_DATA: () => getDashboardData(),
@@ -1433,6 +1456,7 @@ if (typeof importScripts === 'function') {
       REMOVE_WHITELIST: (m) => removeWhitelist(m.handle),
       IMPORT_USER_DATA: (m) => importUserData(m.payload || {}),
       UPDATE_BADGE: (m, sender) => updateBadge(m, sender),
+      MARK_STAGE_SEEN: (m) => markStageSeen(m.payload || m || {}),
     };
 
     function handleMessage(msg = {}, sender = null) {
@@ -1457,6 +1481,7 @@ if (typeof importScripts === 'function') {
       undoWhitelistAccount,
       removeWhitelist,
       importUserData,
+      markStageSeen,
       ensureSyncAlarm,
       clearSyncAlarm,
       reinjectOpenXTabs,

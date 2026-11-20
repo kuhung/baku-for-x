@@ -1,5 +1,12 @@
 (function () {
-  const { sendMessage, el, describeRuntimeStatus, describeInterceptEntry } = window.AntiSlopShared;
+  const {
+    sendMessage,
+    el,
+    describeRuntimeStatus,
+    describeInterceptEntry,
+    resolveBakuStage,
+    getBakuStageIndex,
+  } = window.AntiSlopShared;
 
   let activeXTabId = null;
   let lastTabSummaryCount = null;
@@ -12,8 +19,9 @@
   let toastVersion = 0;
   let tabRecheckTimer = null;
   let companionPetTimer = null;
-  let companionMunchTimer = null;
-  let playedInitialMunch = false;
+  let companionEvolveTimer = null;
+  let acknowledgedStageIndex = -1;
+  let petLineCursor = 0;
 
   function entryKey(entry) {
     return String(entry?.tweetId || `acct_${entry?.matchedHandle || entry?.handle || ''}`);
@@ -561,47 +569,70 @@
     }
   }
 
-  function updateCompanionState(settings, pageCount) {
+  function updateCompanionState(settings, stats, pageCount) {
     const btn = document.getElementById('bakuCompanionBtn');
     const img = document.getElementById('bakuCompanionImg');
+    const nameEl = document.getElementById('bakuStageName');
+    const hintEl = document.getElementById('bakuStageHint');
+    const fillEl = document.getElementById('bakuStageProgressFill');
     if (!btn || !img) return;
 
     const enabled = settings?.enabled !== false;
     btn.classList.toggle('is-paused', !enabled);
 
-    if (!enabled) {
-      if (companionMunchTimer) {
-        clearTimeout(companionMunchTimer);
-        companionMunchTimer = null;
+    const { stage, index, nextStage, remaining, progress } = resolveBakuStage(stats?.filteredCount || 0);
+    const expectedSrc = `../${stage.asset}`;
+    if (img.getAttribute('src') !== expectedSrc) {
+      img.setAttribute('src', expectedSrc);
+    }
+    img.alt = stage.name;
+
+    if (nameEl) nameEl.textContent = stage.name;
+    if (hintEl) {
+      if (!enabled) {
+        hintEl.textContent = '已暂停，开启开关唤醒';
+      } else if (nextStage) {
+        hintEl.textContent = `再吞 ${remaining} 条进入${nextStage.name}`;
+      } else {
+        hintEl.textContent = `终态 · ${stage.tagline}`;
       }
-      img.src = '../assets/baku-trigger-idle.png';
-      btn.title = '静貘打盹中，开启右上角开关唤醒';
-      return;
+    }
+    if (fillEl) {
+      fillEl.style.width = `${Math.round(progress * 100)}%`;
     }
 
-    const num = typeof pageCount === 'number' ? pageCount : 0;
-    btn.title = num > 0 ? `本页已吞掉 ${num} 条（点我摸一摸）` : '静默守候中（点我摸一摸）';
+    if (!enabled) {
+      btn.title = `${stage.name}打盹中，开启右上角开关唤醒`;
+    } else {
+      const pageSummary = typeof pageCount === 'number' && pageCount > 0 ? ` · 本页已吞 ${pageCount} 条` : '';
+      btn.title = `${stage.name}（${stage.enName}）· ${stage.tagline}${pageSummary}（点我摸一摸）`;
+    }
 
-    if (num > 0 && !playedInitialMunch) {
-      playedInitialMunch = true;
-      img.src = '../assets/baku-toast-munch.webp';
-      if (companionMunchTimer) clearTimeout(companionMunchTimer);
-      companionMunchTimer = setTimeout(() => {
-        companionMunchTimer = null;
-        if (lastRenderedState?.settings?.enabled !== false) {
-          img.src = '../assets/baku-popup-idle.webp';
-        }
-      }, 1800);
-    } else if (!companionMunchTimer) {
-      img.src = '../assets/baku-popup-idle.webp';
+    const persistedSeenIdx = getBakuStageIndex(stats?.lastSeenStageId || '');
+    const effectiveSeenIdx = Math.max(persistedSeenIdx, acknowledgedStageIndex);
+    if (index > effectiveSeenIdx) {
+      acknowledgedStageIndex = index;
+      sendMessage({ type: 'MARK_STAGE_SEEN', payload: { stageId: stage.id } });
+      if (index > 0 && enabled) {
+        if (companionEvolveTimer) clearTimeout(companionEvolveTimer);
+        btn.classList.remove('is-evolved');
+        void btn.offsetWidth;
+        btn.classList.add('is-evolved');
+        companionEvolveTimer = setTimeout(() => {
+          companionEvolveTimer = null;
+          btn.classList.remove('is-evolved');
+        }, 1300);
+        showPopupToast(`静貘已进入「${stage.name}」阶段`);
+      }
     }
   }
 
   function triggerCompanionPet() {
     const btn = document.getElementById('bakuCompanionBtn');
     if (!btn) return;
+    const { stage } = resolveBakuStage(lastRenderedState?.stats?.filteredCount || 0);
     if (lastRenderedState?.settings?.enabled === false) {
-      showPopupToast('静貘正在打盹，开启右上角开关唤醒它');
+      showPopupToast(`${stage.name}正在打盹，开启右上角开关唤醒`);
       return;
     }
     if (companionPetTimer) clearTimeout(companionPetTimer);
@@ -611,7 +642,13 @@
     companionPetTimer = setTimeout(() => {
       companionPetTimer = null;
       btn.classList.remove('is-petting');
-    }, 620);
+    }, 540);
+    const lines = stage.petLines || [];
+    if (lines.length > 0) {
+      const line = lines[petLineCursor % lines.length];
+      petLineCursor += 1;
+      showPopupToast(line);
+    }
   }
 
   async function refresh() {
@@ -650,7 +687,7 @@
       ? (lastTabSummaryCount !== null ? String(lastTabSummaryCount) : '-')
       : '0';
     document.getElementById('totalCountVal').textContent = String(stats?.filteredCount || 0);
-    updateCompanionState(settings, lastTabSummaryCount);
+    updateCompanionState(settings, stats, lastTabSummaryCount);
 
     renderRecentIntercepted(recentIntercepted, settings);
   }

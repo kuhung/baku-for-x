@@ -25,21 +25,31 @@
   </header>
 
   <section class="stats-well" aria-label="拦截统计与静貘状态">
-    <div class="stats-row">
-      <div class="stat-cell">
-        <div class="stat-label">本页拦截</div>
-        <div class="stat-val" id="pageCountVal">0</div>
+    <div class="stats-main">
+      <div class="stats-row">
+        <div class="stat-cell">
+          <div class="stat-label">本页拦截</div>
+          <div class="stat-val" id="pageCountVal">0</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">累计拦截</div>
+          <div class="stat-val" id="totalCountVal">0</div>
+        </div>
       </div>
-      <div class="stat-cell">
-        <div class="stat-label">累计拦截</div>
-        <div class="stat-val" id="totalCountVal">0</div>
+      <button type="button" class="baku-companion" id="bakuCompanionBtn" aria-label="与静貘互动" title="静默守候中（点我摸一摸）">
+        <img class="baku-companion-img" id="bakuCompanionImg" src="../assets/stages/baku-stage-1.webp" alt="幼貘" width="52" height="52" />
+        <span class="baku-companion-sparkle" aria-hidden="true"></span>
+      </button>
+    </div>
+    <div class="stage-strip" id="bakuStageStrip">
+      <div class="stage-meta">
+        <span class="stage-name" id="bakuStageName">幼貘</span>
+        <span class="stage-hint" id="bakuStageHint"></span>
+      </div>
+      <div class="stage-progress-track" aria-hidden="true">
+        <div class="stage-progress-fill" id="bakuStageProgressFill" style="width: 0%;"></div>
       </div>
     </div>
-    <button type="button" class="baku-companion" id="bakuCompanionBtn" aria-label="与静貘互动" title="静默守候中（点我摸一摸）">
-      <img class="baku-companion-img" id="bakuCompanionImg" src="../assets/baku-popup-idle.webp" alt="" width="48" height="48" />
-      <span class="baku-companion-sprite" id="bakuCompanionSprite" aria-hidden="true"></span>
-      <span class="baku-companion-sparkle" aria-hidden="true"></span>
-    </button>
   </section>
 
   <section class="recent-section" id="recentCard" aria-label="最近拦截">
