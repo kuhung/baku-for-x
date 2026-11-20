@@ -1,0 +1,20 @@
+name = "anti-slop-flywheel"
+main = "worker/src/index.js"
+compatibility_date = "2025-01-01"
+
+[observability]
+enabled = true
+
+[vars]
+BLACKLIST_REPORT_QUORUM = "2"
+POST_REPORT_QUORUM = "2"
+ACCOUNT_ESCALATION_THRESHOLD = "3"
+AI_DAILY_ITEM_LIMIT = "5000"
+IP_MINUTE_ITEM_LIMIT = "120"
+IP_DAILY_ITEM_LIMIT = "800"
+ALLOW_PUBLIC_CLASSIFY = "true"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "anti-slop-db"
+database_id = "8893f822-d50a-4cca-938b-52b129e9fc98"

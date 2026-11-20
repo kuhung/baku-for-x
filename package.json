@@ -1,0 +1,22 @@
+{
+  "name": "baku-for-x",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kuhung/baku-for-x.git"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "type": "module",
+  "description": "Minimal Chrome MV3 extension + Cloudflare Worker data flywheel to quietly hide slop on X/Twitter.",
+  "scripts": {
+    "start": "node server/src/index.js",
+    "dev": "node --watch server/src/index.js",
+    "test": "node --test server/test/*.test.js extension/test/*.test.js",
+    "eval": "node server/src/eval.js",
+    "logs": "node server/src/eval.js --remote --logs"
+  }
+}

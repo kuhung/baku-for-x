@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="description" content="静貘 · Baku：X 时间线与评论区静默过滤状态及最近拦截面板" />
+  <title>静貘 · Baku</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="brand">
+      <img class="brand-mark" src="../icons/icon48.png" alt="" width="24" height="24" />
+      <h1 class="title"><span>静貘</span><span class="title-sep" aria-hidden="true">·</span><span class="title-en">Baku</span></h1>
+    </div>
+    <div class="header-controls">
+      <button type="button" class="status-pill" id="serverStatusPill" style="display: none;" title="打开云端与模型设置">
+        <span id="serverStatusText"></span>
+      </button>
+      <label class="switch" aria-label="开启过滤">
+        <input type="checkbox" id="enabledToggle" role="switch" />
+        <span class="slider"></span>
+      </label>
+    </div>
+  </header>
+
+  <section class="stats-well" aria-label="拦截统计与静貘状态">
+    <div class="stats-row">
+      <div class="stat-cell">
+        <div class="stat-label">本页拦截</div>
+        <div class="stat-val" id="pageCountVal">0</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">累计拦截</div>
+        <div class="stat-val" id="totalCountVal">0</div>
+      </div>
+    </div>
+    <button type="button" class="baku-companion" id="bakuCompanionBtn" aria-label="与静貘互动" title="静默守候中（点我摸一摸）">
+      <img class="baku-companion-img" id="bakuCompanionImg" src="../assets/baku-popup-idle.webp" alt="" width="48" height="48" />
+      <span class="baku-companion-sprite" id="bakuCompanionSprite" aria-hidden="true"></span>
+      <span class="baku-companion-sparkle" aria-hidden="true"></span>
+    </button>
+  </section>
+
+  <section class="recent-section" id="recentCard" aria-label="最近拦截">
+    <div class="section-head">
+      <span class="section-title">最近拦截 <span class="section-count" id="recentCount"></span></span>
+      <button type="button" class="text-link-btn" id="viewAllRecentBtn" style="display: none;">查看全部</button>
+    </div>
+    <div id="recentList" class="recent-list">
+      <div class="recent-empty">正在读取状态…</div>
+    </div>
+  </section>
+
+  <div class="footer-actions">
+    <button type="button" class="dashboard-btn" id="openDashboardBtn">打开管理台</button>
+  </div>
+
+  <div id="popupToast" class="toast-float" role="status" aria-live="polite" hidden></div>
+
+  <script src="shared.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="description" content="静貘 · Baku 最近拦截记录、账号黑白名单与云端模型设置" />
+  <title>静貘 · Baku 管理台</title>
+  <link rel="icon" type="image/png" href="../icons/icon32.png" />
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <img class="brand-mark" src="../icons/icon48.png" alt="" width="28" height="28" />
+        <h1 class="brand-title"><span>静貘</span><span class="brand-sep" aria-hidden="true">·</span><span class="brand-en">Baku</span></h1>
+      </div>
+
+      <nav class="nav-groove" aria-label="主导航">
+        <button type="button" class="nav-btn active" data-tab="feedback">
+          <span>最近拦截</span>
+        </button>
+        <button type="button" class="nav-btn" data-tab="accounts">
+          <span>黑白名单</span>
+          <span class="nav-count" id="navAccountsBadge">0</span>
+        </button>
+        <button type="button" class="nav-btn" data-tab="cloud">
+          <span>云端与模型</span>
+        </button>
+      </nav>
+
+      <div class="topbar-utility">
+        <span class="brand-meta" id="topbarSummary">累计拦截 0 条</span>
+        <button type="button" class="status-pill" id="topbarStatusBtn" style="display: none;" title="查看云端与模型设置">
+          <span id="topbarStatusText"></span>
+        </button>
+        <div class="topbar-quick">
+          <label class="switch" aria-label="开启过滤" title="开启或暂停过滤">
+            <input type="checkbox" id="dashEnabledToggle" role="switch" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <section class="section active" id="tab-feedback">
+      <div class="page-head">
+        <h2 class="page-title">最近拦截与放行</h2>
+        <p class="page-desc">查看近期被隐藏或遮罩的推文，随时放行单条推文或将账号加入信任白名单；连接飞轮后你的操作会自动静默改进公共名单。</p>
+      </div>
+
+      <div class="toolbar">
+        <input type="text" class="grow" id="auditSearchInput" aria-label="搜索最近拦截记录" placeholder="搜索 @账号或推文内容" />
+        <span class="toolbar-meta" id="auditListMeta"></span>
+      </div>
+
+      <div class="sheet">
+        <div id="auditList" class="ledger-list">
+          <div class="empty-state">正在读取拦截记录…</div>
+        </div>
+        <div id="auditPagination" class="pagination-bar" style="display: none;"></div>
+      </div>
+    </section>
+
+    <section class="section" id="tab-accounts">
+      <div class="page-head">
+        <h2 class="page-title">账号黑白名单</h2>
+        <p class="page-desc">管理拉黑账号与信任白名单，支持导出与导入 JSON 文件备份或共享。</p>
+      </div>
+
+      <div class="sheet">
+        <label class="field-label" for="manualAccountInput">手动添加账号</label>
+        <div class="toolbar toolbar-tight">
+          <input type="text" class="grow" id="manualAccountInput" placeholder="例如 spam_bot" />
+          <button type="button" class="btn btn-primary" id="manualWhitelistBtn">加入信任白名单</button>
+          <button type="button" class="btn btn-danger" id="manualBlockBtn">拉黑账号</button>
+        </div>
+        <div id="accountActionMsg" class="feedback-banner" role="status" style="display: none;"></div>
+      </div>
+
+      <div class="list-bar">
+        <div class="sub-tabs" id="accountSubTabs">
+          <button type="button" class="sub-tab active" data-acct-tab="effective">生效黑名单 (<span id="cntEffective">0</span>)</button>
+          <button type="button" class="sub-tab" data-acct-tab="local">本地拉黑 (<span id="cntLocal">0</span>)</button>
+          <button type="button" class="sub-tab" data-acct-tab="remote">云端黑名单 (<span id="cntRemote">0</span>)</button>
+          <button type="button" class="sub-tab" data-acct-tab="whitelist">信任白名单 (<span id="cntWhitelist">0</span>)</button>
+        </div>
+
+        <div class="list-tools">
+          <input type="text" class="list-search" id="accountSearchInput" aria-label="筛选当前账号列表" placeholder="筛选账号…" />
+          <button type="button" class="btn" id="exportDataBtn">导出 JSON</button>
+          <button type="button" class="btn" id="importDataBtn">导入 JSON</button>
+          <input type="file" id="importFileInput" accept="application/json,.json" style="display: none;" />
+        </div>
+      </div>
+
+      <div class="sheet">
+        <div id="accountsList" class="ledger-list">
+          <div class="empty-state">正在读取账号列表…</div>
+        </div>
+        <div id="accountsPagination" class="pagination-bar" style="display: none;"></div>
+      </div>
+    </section>
+
+    <section class="section" id="tab-cloud">
+      <div class="page-head">
+        <h2 class="page-title">云端与模型</h2>
+        <p class="page-desc">公共飞轮负责实时判帖与增量同步共享黑名单；如需由浏览器直连判别，可在下方单独启用自有接口密钥。</p>
+      </div>
+
+      <div class="sheet">
+        <div class="rule-row rule-row-top rule-row-pref">
+          <div>
+            <label class="rule-name" for="displayModeSelect">推文处理方式</label>
+            <div class="rule-desc">默认直接无痕隐藏命中的 Slop，仅在工具栏和弹窗同步计数；也可改为毛玻璃遮罩。</div>
+          </div>
+          <div class="select-wrap">
+            <select id="displayModeSelect" class="pref-select">
+              <option value="hide">无痕隐藏（默认）</option>
+              <option value="mask">毛玻璃遮罩</option>
+            </select>
+            <svg class="select-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="rule-row rule-row-pref">
+          <div>
+            <label class="rule-name" for="badgeModeSelect">工具栏图标提示</label>
+            <div class="rule-desc">默认在图标左上黑底安全区直接显示无框霁青数字并点亮鼻尖星光，不遮挡静貘轮廓；也可切换为原生右下角标或纯静默图标。</div>
+          </div>
+          <div class="select-wrap">
+            <select id="badgeModeSelect" class="pref-select">
+              <option value="corner">左上星光计数（默认，不遮挡图标）</option>
+              <option value="count">原生右下数字角标</option>
+              <option value="none">纯静默图标（仅弹窗与悬停显示）</option>
+            </select>
+            <svg class="select-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="rule-row rule-row-pref">
+          <div>
+            <label class="rule-name" for="scanScopeSelect">实时判帖扫描范围</label>
+            <div class="rule-desc">默认仅扫描评论区与引用以节省配额；开启全站时间线后会同步识别关注流。</div>
+          </div>
+          <div class="select-wrap">
+            <select id="scanScopeSelect" class="pref-select">
+              <option value="replies">仅评论区与引用（推荐省流）</option>
+              <option value="all">全部时间线与评论区</option>
+            </select>
+            <svg class="select-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+        </div>
+        <div id="prefMsg" class="feedback-banner" role="status" style="display: none;"></div>
+      </div>
+
+      <div class="sheet">
+        <div class="rule-row rule-row-top">
+          <div>
+            <div class="rule-name">共享飞轮服务</div>
+            <div class="rule-desc">定时增量同步公共黑名单；未启用下方「自有密钥直连」时，新帖判别也由飞轮服务完成。</div>
+          </div>
+          <label class="switch" aria-label="开启共享飞轮">
+            <input type="checkbox" id="flywheelEnabledToggle" role="switch" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div id="flywheelDiagWrap" class="diag-wrap" style="display: none;">
+          <div id="flywheelDiagGrid" class="diag-grid"></div>
+          <div id="flywheelDiagEndpoint" class="diag-endpoint"></div>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label class="field-label" for="flywheelUrlInput">自定义飞轮服务地址（可选，留空使用默认公共地址）</label>
+            <input type="text" class="full-field" id="flywheelUrlInput" placeholder="https://example.workers.dev" />
+          </div>
+          <div>
+            <label class="field-label" for="flywheelTokenInput">私有部署访问令牌（可选，公共服务留空）</label>
+            <input type="password" class="full-field" id="flywheelTokenInput" placeholder="Bearer token" />
+          </div>
+        </div>
+
+        <div class="banner-actions actions-gap">
+          <button type="button" class="btn btn-primary" id="saveFlywheelBtn">保存并同步</button>
+          <button type="button" class="btn" id="syncNowBtn">立即同步名单</button>
+        </div>
+        <div id="flywheelSaveMsg" class="feedback-banner" role="status" style="display: none;"></div>
+      </div>
+
+      <div class="sheet">
+        <div class="rule-row rule-row-top">
+          <div>
+            <div class="rule-name">浏览器直连判帖（BYOK，可选）</div>
+            <div class="rule-desc">填入自有接口密钥后，新帖实时判别改由浏览器直连完成；上方「共享飞轮」可保持开启以继续同步公共黑名单。</div>
+          </div>
+          <label class="switch" aria-label="启用浏览器直连模型">
+            <input type="checkbox" id="aiEnabledToggle" role="switch" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label class="field-label" for="aiApiKeyInput">接口密钥 API Key（仅保存在本机浏览器）</label>
+            <input type="password" class="full-field" id="aiApiKeyInput" placeholder="粘贴接口密钥" />
+          </div>
+          <div>
+            <label class="field-label" for="aiBaseUrlInput">自定义判别接口地址（可选，留空使用默认地址）</label>
+            <input type="text" class="full-field" id="aiBaseUrlInput" placeholder="https://api.example.com/v1/decisions" />
+          </div>
+          <div>
+            <label class="field-label" for="aiModelInput">自定义模型标识（可选，留空使用默认模型）</label>
+            <input type="text" class="full-field" id="aiModelInput" placeholder="model-id" />
+          </div>
+        </div>
+
+        <div class="banner-actions actions-gap">
+          <button type="button" class="btn" id="saveAiBtn">保存直连设置</button>
+        </div>
+        <div id="aiSaveMsg" class="feedback-banner" role="status" style="display: none;"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="dashToast" class="toast-float" role="status" aria-live="polite" hidden></div>
+
+  <footer class="dash-footer">静貘 · Baku · 静默清理 X 时间线与评论区里的 Slop</footer>
+
+  <script src="shared.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>
