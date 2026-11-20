@@ -8,7 +8,7 @@
 
 - **中文名称**：静貘
 - **英文名称**：Baku
-- **组合写法**：静貘 · Baku（[Chrome 应用商店](https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad)名 `Baku 静貘 for X`，工具栏提示名 `Baku 静貘`）
+- **组合写法**：静貘 · Baku（[Chrome 应用商店](https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad)名 `Baku for X Slop`，工具栏提示名 `Baku`）
 - **动物意象**：结合东方传说里在夜里悄悄吃掉噩梦与杂念的食梦貘，以及天然呈黑白两色的马来貘（Malayan Tapir）。「静貘」谐音「静默」，对应「熊猫吃短信」式的克制脾气：不弹警告条、不打扰视线，安静吃掉 X 时间线与评论区里的水帖，只留下真正在说话的人。
 - **双语核心口号**：
   - 中文主口号：吞掉水帖，还你清净
@@ -36,8 +36,9 @@
 | 五阶段演化设定总图与原稿 | `1536 × 1024` / `512 × 512` PNG (RGBA) | `docs/assets/baku-stages-sheet.png`、`docs/assets/stages/baku-stage-{1..5}.png` | 幼貘至栖星五阶段全身设定总图与透明高清分阶原稿 |
 | Popup 五阶段伴侣立绘 | `256 × 256` WebP (RGBA) | `extension/assets/stages/baku-stage-{1..5}.webp` | Popup 弹窗内按本机累计拦截条数自动切换的五阶段伴侣立绘 |
 | GitHub 品牌头图 | `16:9` PNG | `docs/assets/baku-hero-banner.png` | 宣纸白底横幅，左侧品牌署名，右侧无痕过滤概念示意 |
-| Chrome 商店大图 | `1280 × 800` PNG | `docs/assets/baku-store-promo-1280x800.png` | 玄墨底 Marquee / 宣传大图 |
-| Chrome 商店小图 | `440 × 280` PNG | `docs/assets/baku-store-tile-440x280.png` | 小尺寸商店瓷砖卡片 |
+| Chrome 商店大图 | `1280 × 800` PNG | `docs/assets/baku-store-promo-1280x800.png` | 玄墨底 Marquee / 宣传大图（24-bit RGB） |
+| Chrome 商店小图 | `440 × 280` PNG | `docs/assets/baku-store-tile-440x280.png` | 小尺寸商店瓷砖卡片（24-bit RGB） |
+| Chrome 商店展示截图 | `1280 × 800` PNG | `docs/assets/store/01..05.png` | 基于真实扩展界面的 5 张商店截图（24-bit RGB），文案见 `docs/store-listing.md` |
 
 ### 2. 使用约束
 

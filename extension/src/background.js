@@ -1272,10 +1272,10 @@ if (typeof importScripts === 'function') {
       const badgeMode = normalizeBadgeMode(settings?.badgeMode);
       const num = Math.max(0, Math.floor(Number(count) || 0));
       const title = !enabled
-        ? 'Baku 静貘 · 已暂停'
+        ? 'Baku · 已暂停'
         : num > 0
-          ? `Baku 静貘 · 本页已吞掉 ${num} 条`
-          : 'Baku 静貘 · 静默守候中';
+          ? `Baku · 本页已吞掉 ${num} 条`
+          : 'Baku · 静默守候中';
       const iconKey = !enabled ? 'paused' : badgeMode === 'corner' && num > 0 ? 'active' : 'idle';
       const text = enabled && badgeMode === 'count' && num > 0 ? (num > 99 ? '99+' : String(num)) : '';
       const tabScope = tabId != null ? { tabId } : {};

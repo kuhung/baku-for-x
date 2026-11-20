@@ -12,7 +12,7 @@
 
 ### Chrome 应用商店（推荐）
 
-前往 Chrome 应用商店一键安装：**[Baku 静貘 for X](https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad)**
+前往 Chrome 应用商店一键安装：**[Baku for X Slop](https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad)**
 
 安装后打开 `https://x.com` 即可生效（默认已接入公共共享服务，零配置开箱可用）。
 
@@ -82,6 +82,7 @@ npm start            # 默认监听 http://127.0.0.1:8787
 
 ```bash
 npm test                     # 运行全部扩展与服务端单元测试
+npm run pack                 # 校验版本、语言包、文案规则并打包 dist/*.zip
 npm run eval                 # 查看本地样本分布（配好密钥可同步跑模型回放）
 npm run eval -- --remote     # 拉取线上 D1 样本与统计
 npm run logs                 # 查看线上最近判别审计日志与灰区分布
@@ -92,8 +93,9 @@ npm run logs                 # 查看线上最近判别审计日志与灰区分�
 ## 品牌视觉与素材
 
 - 视觉规范与明暗双色系统：[`docs/brand-guidelines.md`](docs/brand-guidelines.md)
+- 商店发布文案（简繁中文）：[`docs/store-listing.md`](docs/store-listing.md)
 - 五阶段演化设定图：[`docs/assets/baku-stages-sheet.png`](docs/assets/baku-stages-sheet.png)（单阶原稿位于 [`docs/assets/stages/`](docs/assets/stages)）
-- 图标与商店素材：[`docs/assets/baku-icon.png`](docs/assets/baku-icon.png)、[`docs/assets/baku-store-promo-1280x800.png`](docs/assets/baku-store-promo-1280x800.png)、[`docs/assets/baku-store-tile-440x280.png`](docs/assets/baku-store-tile-440x280.png)
+- 图标与商店素材：[`docs/assets/baku-icon.png`](docs/assets/baku-icon.png)、[`docs/assets/baku-store-promo-1280x800.png`](docs/assets/baku-store-promo-1280x800.png)、[`docs/assets/baku-store-tile-440x280.png`](docs/assets/baku-store-tile-440x280.png)、[`docs/assets/store/`](docs/assets/store)
 
 ---
 

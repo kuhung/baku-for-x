@@ -391,7 +391,7 @@ test('UPDATE_BADGE, toolbar three-state icons, IMPORT_USER_DATA, and single-twee
   assert.equal(resActive.icon, 'active');
   assert.equal(resActive.usedCornerImageData, true);
   assert.equal(resActive.text, '');
-  assert.equal(resActive.title, 'Baku 静貘 · 本页已吞掉 120 条');
+  assert.equal(resActive.title, 'Baku · 本页已吞掉 120 条');
   assert.equal(renderCalls[0], 120);
   const lastIconCall = actionCalls.findLast((c) => c.fn === 'setIcon');
   assert.equal(lastIconCall.details.imageData[32].mockCount, 120);
@@ -400,7 +400,7 @@ test('UPDATE_BADGE, toolbar three-state icons, IMPORT_USER_DATA, and single-twee
   // count=0 reverts to idle icon & standby tooltip
   const resIdle = await ctrl.handleMessage({ type: 'UPDATE_BADGE', count: 0 }, { tab: { id: 6 } });
   assert.equal(resIdle.icon, 'idle');
-  assert.equal(resIdle.title, 'Baku 静貘 · 静默守候中');
+  assert.equal(resIdle.title, 'Baku · 静默守候中');
 
   // Switching to count mode immediately updates tracked tabs (tab 5 gets '99+' and idle icon)
   await ctrl.handleMessage({ type: 'UPDATE_SETTINGS', settings: { badgeMode: 'count' } });
@@ -414,14 +414,14 @@ test('UPDATE_BADGE, toolbar three-state icons, IMPORT_USER_DATA, and single-twee
   const tab5Cleared = actionCalls.findLast((c) => c.fn === 'setBadgeText' && c.details.tabId === 5);
   const tab5Title = actionCalls.findLast((c) => c.fn === 'setTitle' && c.details.tabId === 5);
   assert.equal(tab5Cleared.details.text, '');
-  assert.equal(tab5Title.details.title, 'Baku 静貘 · 本页已吞掉 120 条');
+  assert.equal(tab5Title.details.title, 'Baku · 本页已吞掉 120 条');
 
   // Pausing switches icon to paused, clears badge, and sets paused tooltip
   await ctrl.handleMessage({ type: 'UPDATE_SETTINGS', settings: { enabled: false } });
   const tab5PausedIcon = actionCalls.findLast((c) => c.fn === 'setIcon' && c.details.tabId === 5);
   const tab5PausedTitle = actionCalls.findLast((c) => c.fn === 'setTitle' && c.details.tabId === 5);
   assert.equal(tab5PausedIcon.details.path[16], 'icons/icon-paused-16.png');
-  assert.equal(tab5PausedTitle.details.title, 'Baku 静貘 · 已暂停');
+  assert.equal(tab5PausedTitle.details.title, 'Baku · 已暂停');
 
   // Re-enabling restores corner active state for tracked tab 5 (via cached imageData)
   await ctrl.handleMessage({ type: 'UPDATE_SETTINGS', settings: { enabled: true, badgeMode: 'corner' } });
