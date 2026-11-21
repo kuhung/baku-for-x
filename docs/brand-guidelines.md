@@ -32,7 +32,7 @@
 | 高清工具栏 | `32 × 32` PNG (RGBA) | `extension/icons/icon32.png` | 内含 1px 透明边距，同步用于管理台标签页 Favicon |
 | 工具栏小图标 | `16 × 16` PNG (RGBA) | `extension/icons/icon16.png` | 全幅圆角，确保极小尺寸下白鞍背与玄墨头颈对比清晰 |
 | 工具栏三态图标 | `16 × 16` / `32 × 32` PNG (RGBA) | `extension/icons/icon-{idle,active,paused}-{16,32}.png` | 静待态（暗雾星光）、活跃态（亮霁青星光配左上纯黑区无框计数）、暂停态（低对比灰阶） |
-| 推文互动与弹窗动效素材 | `48px` / `96px` / `128px` / `768×128` PNG & WebP | `extension/assets/baku-{trigger-idle,trigger-alert,eat-sprite,toast-munch,popup-idle}.*` | 推文内静息与警觉按钮、6 帧吞噬精灵条、Toast 咀嚼动图与经典守候图 |
+| 推文互动与弹窗动效素材 | `48px` / `96px` / `768×128` PNG & WebP | `extension/assets/baku-{trigger-idle,trigger-alert,eat-sprite,toast-munch}.*` | 推文内静息与警觉按钮、6 帧吞噬精灵条与 Toast 咀嚼动图 |
 | 五阶段演化设定总图与原稿 | `1536 × 1024` / `512 × 512` PNG (RGBA) | `docs/assets/baku-stages-sheet.png`、`docs/assets/stages/baku-stage-{1..5}.png` | 幼貘至栖星五阶段全身设定总图与透明高清分阶原稿 |
 | Popup 五阶段伴侣立绘 | `256 × 256` WebP (RGBA) | `extension/assets/stages/baku-stage-{1..5}.webp` | Popup 弹窗内按本机累计拦截条数自动切换的五阶段伴侣立绘 |
 | GitHub 品牌头图 | `16:9` PNG | `docs/assets/baku-hero-banner.png` | 宣纸白底横幅，左侧品牌署名，右侧无痕过滤概念示意 |

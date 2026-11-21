@@ -31,6 +31,7 @@
   let dashToastTimer = null;
   let dashToastHovered = false;
   let dashToastVersion = 0;
+  let cloudHealthRequested = false;
 
   const auditEntryKey = (entry) => String(entry?.tweetId || `acct_${entry?.matchedHandle || entry?.handle || ''}`);
   const accountRowKey = (tab, handle) => `${tab}:${handle}`;
@@ -86,6 +87,10 @@
     document.querySelectorAll('.nav-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === currentTab));
     document.querySelectorAll('.section').forEach((sec) => sec.classList.toggle('active', sec.id === `tab-${currentTab}`));
     if (window.location.hash !== `#${currentTab}`) history.replaceState(null, '', `#${currentTab}`);
+    if (currentTab === 'cloud' && !cloudHealthRequested) {
+      cloudHealthRequested = true;
+      sendMessage({ type: 'REFRESH_HEALTH' }).then(() => refresh());
+    }
   }
 
   function renderTopbar() {
@@ -1144,7 +1149,7 @@
         type: 'UPDATE_SETTINGS',
         settings: { flywheelEnabled, flywheelUrl, flywheelToken },
       });
-      const syncRes = await sendMessage({ type: 'SYNC_BLACKLIST', full: true });
+      const syncRes = await sendMessage({ type: 'SYNC_BLACKLIST', full: true, includeHealth: true });
 
       isSavingFlywheel = false;
       btn.textContent = '保存并同步';
@@ -1163,7 +1168,7 @@
     });
 
     document.getElementById('syncNowBtn').addEventListener('click', async () => {
-      const syncRes = await sendMessage({ type: 'SYNC_BLACKLIST' });
+      const syncRes = await sendMessage({ type: 'SYNC_BLACKLIST', includeHealth: true });
       if (syncRes?.ok && syncRes.mode === 'remote') {
         showMsg('flywheelSaveMsg', `同步完成：云端黑名单共 ${syncRes.count || 0} 个账号`, 'ok');
       } else if (syncRes?.mode === 'local') {

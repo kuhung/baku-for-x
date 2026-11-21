@@ -3,7 +3,7 @@
     "message": "Baku for X Slop"
   },
   "extDesc": {
-    "message": "把 X (Twitter) 评论区的 AI 回复哥、蓝标废话和引流垃圾安静清掉。装上即跑，无痕隐藏，一键吞帖随时放行，开源免费。"
+    "message": "在 X (Twitter) 网页端过滤评论区与时间线里的 AI 模板回复、水帖和推广引流。安装即用，默认无痕隐藏，支持单条放行、本机名单与开源自建。"
   },
   "actionTitle": {
     "message": "Baku"

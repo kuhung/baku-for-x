@@ -530,3 +530,157 @@ test('Passwordless anti-abuse enforces IP limits and daily budget gracefully, an
     ringDb.close();
   }
 });
+
+test('FlywheelStore maintains flywheel_counters via triggers, caches getStats, prunes without full scans, and runs 0 COUNT(*) queries', async () => {
+  const { FlywheelStore } = await import('../../worker/src/flywheelStore.js');
+  const { createSqliteD1Database } = await import('../src/d1Sqlite.js');
+
+  const rawDb = createSqliteD1Database(':memory:');
+  const executedSql = [];
+  const trackedDb = {
+    prepare(sql) {
+      executedSql.push(sql);
+      return rawDb.prepare(sql);
+    },
+    batch(stmts) {
+      return rawDb.batch(stmts);
+    },
+    exec(sql) {
+      executedSql.push(sql);
+      return rawDb.exec(sql);
+    },
+    close() {
+      rawDb.close();
+    },
+  };
+
+  try {
+    const store = new FlywheelStore(trackedDb, {
+      reportQuorum: 2,
+      escalationThreshold: 2,
+      maxSamples: 100,
+      maxPostDecisions: 100,
+      maxDecisionLogs: 50,
+      statsCacheTtlMs: 60_000,
+    });
+
+    await store.ensureSchema();
+    executedSql.length = 0;
+
+    // 1. Save 2 SLOP + 2 ALLOW decisions and verify counters
+    await store.savePostDecisions([
+      { tweetId: '100001', handle: 'bot_a', verdict: 'SLOP', confidence: 0.9, source: 'ai_model' },
+      { tweetId: '100002', handle: 'bot_b', verdict: 'SLOP', confidence: 0.9, source: 'ai_model' },
+      { tweetId: '100003', handle: 'clean_c', verdict: 'ALLOW', confidence: 0.9, source: 'ai_model' },
+      { tweetId: '100004', handle: 'clean_d', verdict: 'ALLOW', confidence: 0.9, source: 'ai_model' },
+    ]);
+
+    // Upsert existing tweetId 100001 without changing verdict should keep counts unchanged
+    await store.savePostDecisions([
+      { tweetId: '100001', handle: 'bot_a', verdict: 'SLOP', confidence: 0.95, source: 'ai_model' },
+    ]);
+
+    // 2. APPEAL_TWEET flips 100001 from SLOP -> ALLOW (adds 1 sample, slopPostCount 2 -> 1, cachedPostCount stays 4)
+    await store.recordSignal({ type: 'APPEAL_TWEET', handle: 'bot_a', tweetId: '100001', clientId: 'u1', text: 'false positive' });
+
+    // 3. BLOCK_ACCOUNT reaching quorum activates blacklist (blacklistCount 0 -> 1, adds 2 samples)
+    await store.recordSignal({ type: 'BLOCK_ACCOUNT', handle: 'spammer_x', tweetId: '100005', clientId: 'u1', text: 'spam 1' });
+    await store.recordSignal({ type: 'BLOCK_ACCOUNT', handle: 'spammer_x', tweetId: '100006', clientId: 'u2', text: 'spam 2' });
+
+    // Duplicate sample key (same clientId + signalType + handle + tweetId) should upsert without incrementing sampleCount
+    await store.recordSignal({ type: 'BLOCK_ACCOUNT', handle: 'spammer_x', tweetId: '100005', clientId: 'u1', text: 'spam 1 edited' });
+
+    executedSql.length = 0;
+    const stats1 = await store.getStats();
+    assert.equal(stats1.cachedPostCount, 4);
+    assert.equal(stats1.slopPostCount, 1);
+    assert.equal(stats1.blacklistCount, 1);
+    assert.equal(stats1.blacklistVersion, 1);
+    assert.equal(stats1.sampleCount, 3);
+    assert.equal(
+      executedSql.some((s) => /\bCOUNT\s*\(/i.test(s)),
+      false,
+      `getStats must not run COUNT(*), got: ${executedSql.join(' | ')}`
+    );
+
+    // Second getStats() within TTL hits in-memory cache with 0 DB queries
+    executedSql.length = 0;
+    const statsCached = await store.getStats();
+    assert.deepEqual(statsCached, stats1);
+    assert.equal(executedSql.length, 0);
+
+    // 4. APPEAL_ACCOUNT deactivates blacklist (blacklistCount 1 -> 0, blacklistVersion 1 -> 2, adds 1 sample)
+    await store.recordSignal({ type: 'APPEAL_ACCOUNT', handle: 'spammer_x', clientId: 'u3', text: 'not spam' });
+    const statsAfterAppeal = await store.getStats();
+    assert.equal(statsAfterAppeal.blacklistCount, 0);
+    assert.equal(statsAfterAppeal.blacklistVersion, 2);
+    assert.equal(statsAfterAppeal.sampleCount, 4);
+
+    // UNBLOCK_ACCOUNT removes u1's FN_ACCOUNT sample (sampleCount 4 -> 3)
+    await store.recordSignal({ type: 'UNBLOCK_ACCOUNT', handle: 'spammer_x', clientId: 'u1' });
+    const statsAfterUnblock = await store.getStats();
+    assert.equal(statsAfterUnblock.sampleCount, 3);
+
+    // 5. Ring-buffer decision_logs enforces maxDecisionLogs with 0 COUNT(*) queries
+    executedSql.length = 0;
+    await store.appendDecisionLogs(
+      Array.from({ length: 65 }, (_, idx) => ({
+        tweetId: `no_count_${idx}`,
+        handle: `u_${idx}`,
+        verdict: idx % 2 === 0 ? 'SLOP' : 'ALLOW',
+        slopProb: 0.5,
+        confidence: 0.8,
+        text: `text ${idx}`,
+      }))
+    );
+    assert.equal(
+      executedSql.some((s) => /\bCOUNT\s*\(/i.test(s)),
+      false,
+      'appendDecisionLogs must not run COUNT(*)'
+    );
+    const logCnt = await rawDb.prepare('SELECT COUNT(*) AS cnt FROM decision_logs').first();
+    assert.equal(Number(logCnt.cnt), 50);
+
+    // 6. getBlacklist with up-to-date sinceVersion skips the delta row query
+    const currentBl = await store.getBlacklist();
+    executedSql.length = 0;
+    const deltaEmpty = await store.getBlacklist({ sinceVersion: currentBl.version });
+    assert.equal(deltaEmpty.incremental, true);
+    assert.deepEqual(deltaEmpty.accounts, []);
+    assert.deepEqual(deltaEmpty.removed, []);
+    assert.equal(executedSql.length, 1);
+
+    // 7. maxPostDecisions & maxSamples pruning keep flywheel_counters accurate
+    const smallStore = new FlywheelStore(createSqliteD1Database(':memory:'), {
+      maxPostDecisions: 100,
+      maxSamples: 100,
+      statsCacheTtlMs: 0,
+    });
+    await smallStore.ensureSchema();
+    await smallStore.savePostDecisions(
+      Array.from({ length: 105 }, (_, i) => ({
+        tweetId: `${200000 + i}`,
+        handle: `h_${i}`,
+        verdict: i === 0 ? 'SLOP' : 'ALLOW',
+        confidence: 0.9,
+        source: 'ai_model',
+      }))
+    );
+    for (let i = 0; i < 103; i += 1) {
+      await smallStore.recordSignal({
+        type: 'BLOCK_TWEET',
+        handle: `s_${i}`,
+        tweetId: `${300000 + i}`,
+        clientId: `c_${i}`,
+        text: `slop sample ${i}`,
+      });
+    }
+    const prunedStats = await smallStore.getStats();
+    assert.equal(prunedStats.cachedPostCount, 100);
+    assert.equal(prunedStats.slopPostCount, 1);
+    assert.equal(prunedStats.sampleCount, 100);
+    smallStore.db.close();
+  } finally {
+    trackedDb.close();
+  }
+});

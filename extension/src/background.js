@@ -364,7 +364,7 @@ if (typeof importScripts === 'function') {
       }
     }
 
-    async function syncBlacklist({ full = false } = {}) {
+    async function syncBlacklist({ full = false, includeHealth = false } = {}) {
       const settings = await getSettings();
       const baseUrl = getEffectiveFlywheelUrl(settings);
       if (!baseUrl) {
@@ -395,7 +395,7 @@ if (typeof importScripts === 'function') {
         const headers = buildHeaders(settings, false);
         const [blRes, healthRes] = await Promise.all([
           fetchImpl(`${baseUrl}/api/v1/blacklist${query}`, { headers }),
-          fetchImpl(`${baseUrl}/health`, { headers }).catch(() => null),
+          includeHealth ? fetchImpl(`${baseUrl}/health`, { headers }).catch(() => null) : Promise.resolve(null),
         ]);
         if (!blRes.ok) throw new Error(`HTTP ${blRes.status}`);
         const blData = await blRes.json();
@@ -458,6 +458,35 @@ if (typeof importScripts === 'function') {
           await setStorage({ [STORAGE_KEYS.STATS]: stats });
           return { ok: false, error: err.message, stats };
         });
+      }
+    }
+
+    async function refreshRemoteHealth() {
+      const settings = await getSettings();
+      const baseUrl = getEffectiveFlywheelUrl(settings);
+      if (!baseUrl) {
+        return { ok: true, mode: 'local' };
+      }
+      try {
+        const res = await fetchImpl(`${baseUrl}/health`, { headers: buildHeaders(settings, false) });
+        if (!res || !res.ok) throw new Error(`HTTP ${res?.status || 0}`);
+        const health = await res.json();
+        return withStorageLock(async () => {
+          const prev = await getStorage([STORAGE_KEYS.STATS]);
+          const stats = {
+            ...buildDefaultStats(prev[STORAGE_KEYS.STATS]),
+            mode: 'remote',
+            backendOnline: true,
+            lastError: '',
+            ...(health && typeof health.slopPostCount === 'number'
+              ? { remoteSlopPostCount: health.slopPostCount }
+              : {}),
+          };
+          await setStorage({ [STORAGE_KEYS.STATS]: stats });
+          return { ok: true, mode: 'remote', stats };
+        });
+      } catch (err) {
+        return { ok: false, error: err?.message || 'Health check error' };
       }
     }
 
@@ -1111,10 +1140,10 @@ if (typeof importScripts === 'function') {
       return { ok: true, whitelist };
     }
 
-    async function ensureSyncAlarm(periodMinutes = 5) {
+    async function ensureSyncAlarm(periodMinutes = 15) {
       if (chromeApi?.alarms?.create) {
         try {
-          await chromeApi.alarms.create('antislop_sync', { periodInMinutes: Math.max(1, Number(periodMinutes) || 5) });
+          await chromeApi.alarms.create('antislop_sync', { periodInMinutes: Math.max(1, Number(periodMinutes) || 15) });
         } catch {
           // ignore
         }
@@ -1444,7 +1473,8 @@ if (typeof importScripts === 'function') {
       GET_STATE: () => getState(),
       GET_DASHBOARD_DATA: () => getDashboardData(),
       UPDATE_SETTINGS: (m) => updateSettings(m.settings || {}),
-      SYNC_BLACKLIST: (m) => syncBlacklist({ full: Boolean(m.full) }),
+      SYNC_BLACKLIST: (m) => syncBlacklist({ full: Boolean(m.full), includeHealth: Boolean(m.includeHealth) }),
+      REFRESH_HEALTH: () => refreshRemoteHealth(),
       CLASSIFY_BATCH: (m) => classifyBatch(m.items || []),
       REPORT_SLOP: (m) => reportSlop(m.payload || {}),
       UNBLOCK_ACCOUNT: (m) => unblockAccount(m.payload || {}),
@@ -1471,6 +1501,7 @@ if (typeof importScripts === 'function') {
       getDashboardData,
       updateSettings,
       syncBlacklist,
+      refreshRemoteHealth,
       classifyBatch,
       reportSlop,
       unblockAccount,
@@ -1503,11 +1534,15 @@ if (typeof importScripts === 'function') {
     });
 
     if (rootScope.chrome.runtime.onInstalled) {
-      rootScope.chrome.runtime.onInstalled.addListener(async () => {
+      rootScope.chrome.runtime.onInstalled.addListener(async (details) => {
         const { settings, effectiveFlywheelUrl } = await controller.getState();
-        await controller.updateSettings(settings);
-        await controller.syncAllToolbarAppearances(settings);
-        if (effectiveFlywheelUrl) await controller.ensureSyncAlarm(settings.syncIntervalMinutes || 5);
+        const nextSettings =
+          details?.reason === 'update' && settings.syncIntervalMinutes === 5
+            ? { ...settings, syncIntervalMinutes: 15 }
+            : settings;
+        await controller.updateSettings(nextSettings);
+        await controller.syncAllToolbarAppearances(nextSettings);
+        if (effectiveFlywheelUrl) await controller.ensureSyncAlarm(nextSettings.syncIntervalMinutes || 15);
         else await controller.clearSyncAlarm();
         await controller.reinjectOpenXTabs();
         controller.syncBlacklist();
@@ -1518,7 +1553,7 @@ if (typeof importScripts === 'function') {
       rootScope.chrome.runtime.onStartup.addListener(async () => {
         const { settings, effectiveFlywheelUrl } = await controller.getState();
         await controller.syncAllToolbarAppearances(settings);
-        if (effectiveFlywheelUrl) await controller.ensureSyncAlarm(settings.syncIntervalMinutes || 5);
+        if (effectiveFlywheelUrl) await controller.ensureSyncAlarm(settings.syncIntervalMinutes || 15);
         else await controller.clearSyncAlarm();
         controller.syncBlacklist();
       });

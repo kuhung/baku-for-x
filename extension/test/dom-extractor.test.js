@@ -345,6 +345,7 @@ test('normalizeSettings and resolveFlywheelUrl reflect Gemini Decisions, badgeMo
   assert.equal(defaults.badgeMode, 'corner');
   assert.equal(defaults.flywheelEnabled, true);
   assert.equal(defaults.flywheelUrl, '');
+  assert.equal(defaults.syncIntervalMinutes, 15);
   assert.equal(defaults.aiEnabled, false);
   assert.equal(defaults.aiScanScope, 'replies');
   assert.equal(defaults.aiBaseUrl, DEFAULT_AI_BASE_URL);

@@ -43,7 +43,7 @@ git clone https://github.com/kuhung/baku-for-x.git
 ## Privacy and Deployment Modes
 
 - **Local DOM display only**: Baku only adjusts how posts display inside your active browser tab. It does not modify your X login session, following list, or native X mute/block lists.
-- **Shared flywheel mode (default)**: Only tweets within your active scan scope (`replies` by default, or `all` timeline + replies) that miss your local lists are checked via `/api/v1/classify/batch` using a random local `clientId`. Explicit block/allow actions send anonymous feedback signals to `/api/v1/feedback`. Rate limiting uses a salted SHA-256 IP digest and never stores raw IP addresses.
+- **Shared flywheel mode (default)**: Only tweets within your active scan scope (`replies` by default, or `all` timeline + replies) that miss your local lists are checked via `/api/v1/classify/batch` using a random local `clientId`. Explicit block/allow actions send anonymous feedback signals to `/api/v1/signal`. Rate limiting uses a salted SHA-256 IP digest and never stores raw IP addresses.
 - **Local-only and self-hosted options**: Disable the shared flywheel in the dashboard to run purely on local block/allow lists and manual hiding, configure your own direct API endpoint and key stored locally in your browser (BYOK), or deploy your own Cloudflare Worker from [`worker/`](worker/).
 
 ---

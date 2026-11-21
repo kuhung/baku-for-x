@@ -15,6 +15,9 @@ const SCHEMA_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_post_decisions_handle ON post_decisions(handle, verdict)`,
   `CREATE INDEX IF NOT EXISTS idx_post_decisions_updated ON post_decisions(updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_post_decisions_prune
+    ON post_decisions(updated_at)
+    WHERE verdict = 'ALLOW' AND source != 'appealed'`,
   `CREATE TABLE IF NOT EXISTS post_votes (
     tweet_id TEXT NOT NULL,
     client_id TEXT NOT NULL,
@@ -95,6 +98,68 @@ const SCHEMA_STATEMENTS = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_decision_logs_created ON decision_logs(id DESC)`,
+  `CREATE TABLE IF NOT EXISTS flywheel_counters (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    active_blacklist_count INTEGER NOT NULL DEFAULT 0,
+    blacklist_version INTEGER NOT NULL DEFAULT 0,
+    cached_post_count INTEGER NOT NULL DEFAULT 0,
+    slop_post_count INTEGER NOT NULL DEFAULT 0,
+    sample_count INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE TRIGGER IF NOT EXISTS trg_post_decisions_ai AFTER INSERT ON post_decisions
+   BEGIN
+     UPDATE flywheel_counters
+     SET cached_post_count = cached_post_count + 1,
+         slop_post_count = slop_post_count + CASE WHEN NEW.verdict = 'SLOP' THEN 1 ELSE 0 END
+     WHERE id = 1;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_post_decisions_au AFTER UPDATE OF verdict ON post_decisions
+   WHEN OLD.verdict != NEW.verdict
+   BEGIN
+     UPDATE flywheel_counters
+     SET slop_post_count = MAX(0, slop_post_count + CASE WHEN NEW.verdict = 'SLOP' THEN 1 ELSE -1 END)
+     WHERE id = 1;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_post_decisions_ad AFTER DELETE ON post_decisions
+   BEGIN
+     UPDATE flywheel_counters
+     SET cached_post_count = MAX(0, cached_post_count - 1),
+         slop_post_count = MAX(0, slop_post_count - CASE WHEN OLD.verdict = 'SLOP' THEN 1 ELSE 0 END)
+     WHERE id = 1;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_blacklist_ai AFTER INSERT ON blacklist
+   BEGIN
+     UPDATE flywheel_counters
+     SET active_blacklist_count = active_blacklist_count + CASE WHEN NEW.active = 1 THEN 1 ELSE 0 END,
+         blacklist_version = MAX(blacklist_version, NEW.version)
+     WHERE id = 1;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_blacklist_au AFTER UPDATE OF active, version ON blacklist
+   WHEN OLD.active != NEW.active OR OLD.version != NEW.version
+   BEGIN
+     UPDATE flywheel_counters
+     SET active_blacklist_count = MAX(0, active_blacklist_count + (CASE WHEN NEW.active = 1 THEN 1 ELSE 0 END) - (CASE WHEN OLD.active = 1 THEN 1 ELSE 0 END)),
+         blacklist_version = MAX(blacklist_version, NEW.version)
+     WHERE id = 1;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_blacklist_ad AFTER DELETE ON blacklist
+   BEGIN
+     UPDATE flywheel_counters
+     SET active_blacklist_count = MAX(0, active_blacklist_count - CASE WHEN OLD.active = 1 THEN 1 ELSE 0 END)
+     WHERE id = 1;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_flywheel_samples_ai AFTER INSERT ON flywheel_samples
+   BEGIN
+     UPDATE flywheel_counters
+     SET sample_count = sample_count + 1
+     WHERE id = 1;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_flywheel_samples_ad AFTER DELETE ON flywheel_samples
+   BEGIN
+     UPDATE flywheel_counters
+     SET sample_count = MAX(0, sample_count - 1)
+     WHERE id = 1;
+   END`,
 ];
 
 export function normalizeHandle(raw) {
@@ -143,13 +208,42 @@ export class FlywheelStore {
     this.maxSamples = parseIntOption(options.maxSamples, 5000, 100);
     this.maxPostDecisions = parseIntOption(options.maxPostDecisions, 20000, 100);
     this.maxDecisionLogs = parseIntOption(options.maxDecisionLogs, 1000, 50);
+    this.autoInitSchema = options.autoInitSchema !== false;
+    this.statsCacheTtlMs = parseIntOption(options.statsCacheTtlMs, 60000, 0);
+    this._statsCache = null;
     this._schemaPromise = null;
   }
 
+  _invalidateStatsCache() {
+    this._statsCache = null;
+  }
+
+  async _ensureCountersRow() {
+    const existing = await this.db.prepare('SELECT id FROM flywheel_counters WHERE id = 1').first();
+    if (existing) return;
+    await this.db
+      .prepare(
+        `INSERT OR IGNORE INTO flywheel_counters (
+           id, active_blacklist_count, blacklist_version, cached_post_count, slop_post_count, sample_count
+         )
+         VALUES (
+           1,
+           (SELECT COUNT(*) FROM blacklist WHERE active = 1),
+           (SELECT COALESCE(MAX(version), 0) FROM blacklist),
+           (SELECT COUNT(*) FROM post_decisions),
+           (SELECT COUNT(*) FROM post_decisions WHERE verdict = 'SLOP'),
+           (SELECT COUNT(*) FROM flywheel_samples)
+         )`
+      )
+      .run();
+  }
+
   async ensureSchema() {
+    if (!this.autoInitSchema) return;
     if (!this._schemaPromise) {
       this._schemaPromise = this.db
         .batch(SCHEMA_STATEMENTS.map((sql) => this.db.prepare(sql)))
+        .then(() => this._ensureCountersRow())
         .catch((err) => {
           this._schemaPromise = null;
           throw err;
@@ -192,6 +286,23 @@ export class FlywheelStore {
     return Number(row?.maxVer || 0) + 1;
   }
 
+  async _readCounterRow() {
+    let row = await this.db
+      .prepare(
+        'SELECT active_blacklist_count, blacklist_version, cached_post_count, slop_post_count, sample_count FROM flywheel_counters WHERE id = 1'
+      )
+      .first();
+    if (!row) {
+      await this._ensureCountersRow();
+      row = await this.db
+        .prepare(
+          'SELECT active_blacklist_count, blacklist_version, cached_post_count, slop_post_count, sample_count FROM flywheel_counters WHERE id = 1'
+        )
+        .first();
+    }
+    return row || {};
+  }
+
   async _activateBlacklist(handle, { reason, source, reportCount, fpCount, now }) {
     const nextVer = await this._nextBlacklistVersion();
     await this.db
@@ -209,6 +320,7 @@ export class FlywheelStore {
       )
       .bind(handle, sanitizeText(reason, 200) || 'USER_REPORT', source, reportCount, fpCount, nextVer, now, now)
       .run();
+    this._invalidateStatsCache();
   }
 
   async _deactivateBlacklist(handle, { reportCount, fpCount, now }) {
@@ -221,6 +333,7 @@ export class FlywheelStore {
       )
       .bind(reportCount, fpCount, nextVer, now, handle)
       .run();
+    this._invalidateStatsCache();
   }
 
   async _insertSample({ signalType, handle = '', tweetId = '', displayName = '', text = '', quotedText = '', reason = '', clientId, now }) {
@@ -248,15 +361,21 @@ export class FlywheelStore {
       )
       .run();
 
-    await this.db
-      .prepare(
-        `DELETE FROM flywheel_samples
-         WHERE id IN (
-           SELECT id FROM flywheel_samples ORDER BY id DESC LIMIT -1 OFFSET ?
-         )`
-      )
-      .bind(this.maxSamples)
-      .run();
+    const counterRow = await this._readCounterRow();
+    const sampleCount = Number(counterRow.sample_count || 0);
+    if (sampleCount > this.maxSamples) {
+      const excess = sampleCount - this.maxSamples;
+      await this.db
+        .prepare(
+          `DELETE FROM flywheel_samples
+           WHERE id IN (
+             SELECT id FROM flywheel_samples ORDER BY id ASC LIMIT ?
+           )`
+        )
+        .bind(excess)
+        .run();
+    }
+    this._invalidateStatsCache();
   }
 
   /**
@@ -320,6 +439,7 @@ export class FlywheelStore {
     }
 
     await this.db.batch(stmts);
+    this._invalidateStatsCache();
     return { allowed: true };
   }
 
@@ -450,9 +570,10 @@ export class FlywheelStore {
 
     if (stmts.length === 0) return { escalatedHandles: [] };
     await this.db.batch(stmts);
+    this._invalidateStatsCache();
 
-    const countRow = await this.db.prepare('SELECT COUNT(*) AS cnt FROM post_decisions').first();
-    const total = Number(countRow?.cnt || 0);
+    const counterRow = await this._readCounterRow();
+    const total = Number(counterRow.cached_post_count || 0);
     if (total > this.maxPostDecisions) {
       const excess = total - this.maxPostDecisions;
       await this.db
@@ -467,6 +588,7 @@ export class FlywheelStore {
         )
         .bind(excess)
         .run();
+      this._invalidateStatsCache();
     }
 
     const escalatedHandles = [];
@@ -510,18 +632,17 @@ export class FlywheelStore {
       );
     }
     if (stmts.length === 0) return;
-    await this.db.batch(stmts);
+    const batchRes = await this.db.batch(stmts);
 
-    const countRow = await this.db.prepare('SELECT COUNT(*) AS cnt FROM decision_logs').first();
-    const total = Number(countRow?.cnt || 0);
-    if (total > this.maxDecisionLogs) {
-      const excess = total - this.maxDecisionLogs;
+    let maxId = Number(batchRes?.[batchRes.length - 1]?.meta?.last_row_id || 0);
+    if (!Number.isFinite(maxId) || maxId <= 0) {
+      const maxRow = await this.db.prepare('SELECT COALESCE(MAX(id), 0) AS maxId FROM decision_logs').first();
+      maxId = Number(maxRow?.maxId || 0);
+    }
+    if (maxId > this.maxDecisionLogs) {
       await this.db
-        .prepare(
-          `DELETE FROM decision_logs
-           WHERE id IN (SELECT id FROM decision_logs ORDER BY id ASC LIMIT ?)`
-        )
-        .bind(excess)
+        .prepare('DELETE FROM decision_logs WHERE id <= ?')
+        .bind(maxId - this.maxDecisionLogs)
         .run();
     }
   }
@@ -529,7 +650,11 @@ export class FlywheelStore {
   async getBlacklist({ since = null, sinceVersion = null } = {}) {
     await this.ensureSchema();
     const meta = await this.db
-      .prepare('SELECT COALESCE(MAX(version), 0) AS maxVer, MAX(updated_at) AS maxUpdatedAt FROM blacklist')
+      .prepare(
+        `SELECT
+           COALESCE((SELECT version FROM blacklist ORDER BY version DESC LIMIT 1), 0) AS maxVer,
+           (SELECT updated_at FROM blacklist ORDER BY updated_at DESC LIMIT 1) AS maxUpdatedAt`
+      )
       .first();
     const currentVersion = Number(meta?.maxVer || 0);
     const updatedAt = meta?.maxUpdatedAt || new Date().toISOString();
@@ -540,6 +665,9 @@ export class FlywheelStore {
         : NaN;
 
     if (Number.isFinite(parsedVer) && parsedVer >= 0) {
+      if (parsedVer >= currentVersion) {
+        return this._formatIncrementalBlacklist([], currentVersion, updatedAt);
+      }
       const res = await this.db
         .prepare(
           'SELECT handle, reason, source, report_count, active, version, updated_at FROM blacklist WHERE version > ? ORDER BY version ASC'
@@ -602,25 +730,42 @@ export class FlywheelStore {
   async getStats() {
     await this.ensureSchema();
     const today = new Date().toISOString().slice(0, 10);
-    const [blRow, slopPostRow, cachedPostRow, sampleRow, usageRow] = await Promise.all([
-      this.db.prepare('SELECT COUNT(*) AS cnt, COALESCE(MAX(version), 0) AS ver FROM blacklist WHERE active = 1').first(),
-      this.db.prepare(`SELECT COUNT(*) AS cnt FROM post_decisions WHERE verdict = 'SLOP'`).first(),
-      this.db.prepare('SELECT COUNT(*) AS cnt FROM post_decisions').first(),
-      this.db.prepare('SELECT COUNT(*) AS cnt FROM flywheel_samples').first(),
+    if (
+      this.statsCacheTtlMs > 0 &&
+      this._statsCache &&
+      this._statsCache.day === today &&
+      Date.now() < this._statsCache.expiresAt
+    ) {
+      return { ...this._statsCache.data };
+    }
+
+    const [counters, usageRow] = await Promise.all([
+      this._readCounterRow(),
       this.db.prepare('SELECT call_count, item_count FROM ai_usage_daily WHERE usage_day = ?').bind(today).first(),
     ]);
-    return {
-      blacklistCount: Number(blRow?.cnt || 0),
-      blacklistVersion: Number(blRow?.ver || 0),
-      slopPostCount: Number(slopPostRow?.cnt || 0),
-      cachedPostCount: Number(cachedPostRow?.cnt || 0),
-      sampleCount: Number(sampleRow?.cnt || 0),
+
+    const result = {
+      blacklistCount: Number(counters.active_blacklist_count || 0),
+      blacklistVersion: Number(counters.blacklist_version || 0),
+      slopPostCount: Number(counters.slop_post_count || 0),
+      cachedPostCount: Number(counters.cached_post_count || 0),
+      sampleCount: Number(counters.sample_count || 0),
       todayAiCalls: Number(usageRow?.call_count || 0),
       todayAiItems: Number(usageRow?.item_count || 0),
       aiDailyItemLimit: this.aiDailyItemLimit,
       reportQuorum: this.reportQuorum,
       escalationThreshold: this.escalationThreshold,
     };
+
+    if (this.statsCacheTtlMs > 0) {
+      this._statsCache = {
+        day: today,
+        expiresAt: Date.now() + this.statsCacheTtlMs,
+        data: result,
+      };
+    }
+
+    return { ...result };
   }
 
   async recordSignal(payload = {}, { aiVerifier = null, ipHash = '', deferTask = null, onBlacklistChange = null } = {}) {
@@ -800,11 +945,13 @@ export class FlywheelStore {
           .bind(tweetId, handle, reportCount, appealCount, now, now)
           .run();
         flippedToAllow = true;
+        this._invalidateStatsCache();
       } else {
         await this.db
           .prepare('UPDATE post_decisions SET report_count = ?, appeal_count = ?, updated_at = ? WHERE tweet_id = ?')
           .bind(reportCount, appealCount, now, tweetId)
           .run();
+        this._invalidateStatsCache();
       }
 
       return { ok: true, type, handle, tweetId, flippedToAllow, reportCount, appealCount };
@@ -984,6 +1131,7 @@ export class FlywheelStore {
         .prepare(`DELETE FROM flywheel_samples WHERE client_id = ? AND signal_type = 'FN_ACCOUNT' AND handle = ?`)
         .bind(clientId, handle)
         .run();
+      this._invalidateStatsCache();
 
       const { reportCount, appealCount } = await this._getVoteCounts(handle);
       const existing = await this._getBlacklistRow(handle);

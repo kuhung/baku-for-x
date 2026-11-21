@@ -128,6 +128,8 @@ export function createFlywheelApp(options = {}) {
         maxSamples: options.maxSamples ?? env.MAX_FLYWHEEL_SAMPLES ?? 5000,
         maxPostDecisions: options.maxPostDecisions ?? env.MAX_POST_DECISIONS ?? 20000,
         maxDecisionLogs: options.maxDecisionLogs ?? env.MAX_DECISION_LOGS ?? 1000,
+        autoInitSchema: String(options.skipRuntimeSchemaInit ?? env.SKIP_RUNTIME_SCHEMA_INIT ?? '').toLowerCase() !== 'true',
+        statsCacheTtlMs: options.statsCacheTtlMs ?? env.STATS_CACHE_TTL_MS ?? 60000,
       });
       storeCache.set(db, store);
     }
@@ -187,19 +189,27 @@ export function createFlywheelApp(options = {}) {
 
       if (request.method === 'GET' && pathname === '/health') {
         const stats = await store.getStats();
-        return jsonResponse({
-          ok: true,
-          service: 'anti-slop-flywheel',
-          aiConfigured: aiVerifier.isConfigured(),
-          aiProvider: aiVerifier.isConfigured() ? aiVerifier.provider : null,
-          ...stats,
-          timestamp: new Date().toISOString(),
-        });
+        return jsonResponse(
+          {
+            ok: true,
+            service: 'anti-slop-flywheel',
+            aiConfigured: aiVerifier.isConfigured(),
+            aiProvider: aiVerifier.isConfigured() ? aiVerifier.provider : null,
+            ...stats,
+            timestamp: new Date().toISOString(),
+          },
+          200,
+          !apiAuthToken ? { 'Cache-Control': 'public, max-age=60' } : {}
+        );
       }
 
       if (request.method === 'GET' && pathname === '/api/v1/stats') {
         const stats = await store.getStats();
-        return jsonResponse({ ok: true, ...stats });
+        return jsonResponse(
+          { ok: true, ...stats },
+          200,
+          !apiAuthToken ? { 'Cache-Control': 'public, max-age=60' } : {}
+        );
       }
 
       if (request.method === 'GET' && pathname === '/api/v1/blacklist') {

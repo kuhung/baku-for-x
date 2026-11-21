@@ -11,6 +11,8 @@ All endpoints accept and return `application/json` with CORS enabled. When `API_
 ### `GET /health`
 Returns service readiness, AI verifier availability, daily AI usage, quorum/escalation thresholds, and active counts.
 
+Counts are served in `O(1)` from the trigger-maintained `flywheel_counters` single-row table with a 60-second in-memory cache (invalidated immediately on writes) and `Cache-Control: public, max-age=60` on public deployments. The extension requests `/health` on-demand when opening or manually syncing the dashboard cloud tab rather than on background timer polls.
+
 **Response `200 OK`:**
 ```json
 {
@@ -33,14 +35,14 @@ Returns service readiness, AI verifier availability, daily AI usage, quorum/esca
 ```
 
 ### `GET /api/v1/stats`
-Returns aggregated flywheel counts without health metadata.
+Returns aggregated flywheel counts from `flywheel_counters` (with the same 60-second in-memory and `Cache-Control: public, max-age=60` cache) without health metadata.
 
 ---
 
 ## 2. Incremental Shared Blacklist Sync (L2)
 
 ### `GET /api/v1/blacklist`
-Returns active shared blacklist accounts and incremental deltas.
+Returns active shared blacklist accounts and incremental deltas. Uses index-backed metadata lookups (`version`, `updated_at`) and short-circuits delta row queries when `sinceVersion >= currentVersion`.
 
 Query parameters (optional):
 - `sinceVersion=<integer>`: recommended monotonic cursor. Returns only rows changed after `<integer>`, split into active additions/updates (`accounts`) and deactivated/appealed handles (`removed`).

@@ -74,9 +74,9 @@ execFileSync('npm', ['test'], { cwd: ROOT, stdio: 'inherit' });
 
 // 5. Run public-copy lint if script is present
 const copyCheckCandidates = [
-  '/Users/kuhung/.t3/userdata/providers/antigravity/ac0a3dfd6dddb20962cecff6ee5fe65e19d3923be20e52c5ab52ff877f7e4c32/config/skills/public-copy/scripts/check-copy.mjs',
+  process.env.PUBLIC_COPY_CHECK_SCRIPT,
   join(homedir(), '.agents/skills/public-copy/scripts/check-copy.mjs'),
-];
+].filter(Boolean);
 const copyCheckScript = copyCheckCandidates.find((p) => existsSync(p));
 if (copyCheckScript) {
   const copyTargets = ['README.md', 'extension/_locales'];

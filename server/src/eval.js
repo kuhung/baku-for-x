@@ -159,9 +159,11 @@ async function loadRemoteSamples() {
   );
   const statsRows = queryRemoteD1(
     `SELECT
-       (SELECT COUNT(*) FROM blacklist WHERE active = 1) AS activeBlacklist,
-       (SELECT COUNT(*) FROM post_decisions WHERE verdict = 'SLOP') AS slopPosts,
-       (SELECT COUNT(*) FROM post_decisions) AS cachedPosts`
+       active_blacklist_count AS activeBlacklist,
+       slop_post_count AS slopPosts,
+       cached_post_count AS cachedPosts
+     FROM flywheel_counters
+     WHERE id = 1`
   );
   return {
     source: 'remote-d1:anti-slop-db',

@@ -167,6 +167,7 @@ test('BYOK Gemini Decisions classifies grey-area posts as TWEET, caches across r
 test('Default flywheel URL sends grey-area batches without token, cascades ACCOUNT verdicts, and emits silent user signals', async () => {
   const signalCalls = [];
   const batchCalls = [];
+  let healthCalls = 0;
   let syncRound = 0;
   const chromeApi = createMockChrome();
 
@@ -204,7 +205,8 @@ test('Default flywheel URL sends grey-area batches without token, cascades ACCOU
       };
     }
     if (url === `${DEFAULT_FLYWHEEL_URL}/health`) {
-      return { ok: true, status: 200, async json() { return { ok: true, slopPostCount: 7 }; } };
+      healthCalls += 1;
+      return { ok: true, status: 200, async json() { return { ok: true, slopPostCount: healthCalls === 1 ? 7 : 12 }; } };
     }
     if (url === `${DEFAULT_FLYWHEEL_URL}/api/v1/classify/batch`) {
       assert.equal(init.headers.Authorization, undefined);
@@ -247,12 +249,23 @@ test('Default flywheel URL sends grey-area batches without token, cascades ACCOU
 
   const ctrl = createBackgroundController({ chromeApi, fetchImpl: mockFetch });
 
+  // Default background SYNC_BLACKLIST makes zero /health calls
   const s1 = await ctrl.handleMessage({ type: 'SYNC_BLACKLIST' });
   assert.equal(s1.count, 2);
-  assert.equal(s1.stats.remoteSlopPostCount, 7);
+  assert.equal(healthCalls, 0);
+  assert.equal(s1.stats.remoteSlopPostCount, 0);
 
-  const s2 = await ctrl.handleMessage({ type: 'SYNC_BLACKLIST' });
+  // Explicit includeHealth: true fetches /health and updates remoteSlopPostCount
+  const s2 = await ctrl.handleMessage({ type: 'SYNC_BLACKLIST', includeHealth: true });
   assert.equal(s2.count, 2);
+  assert.equal(healthCalls, 1);
+  assert.equal(s2.stats.remoteSlopPostCount, 7);
+
+  // On-demand REFRESH_HEALTH fetches /health and updates remoteSlopPostCount
+  const hRes = await ctrl.handleMessage({ type: 'REFRESH_HEALTH' });
+  assert.equal(hRes.ok, true);
+  assert.equal(healthCalls, 2);
+  assert.equal(hRes.stats.remoteSlopPostCount, 12);
 
   // Batch classify defaults to replies-only scope, skips normal timeline posts, routes replies to flywheel without token, and cascades ACCOUNT results
   const batchRes = await ctrl.handleMessage({
