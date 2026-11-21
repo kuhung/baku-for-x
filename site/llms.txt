@@ -1,0 +1,20 @@
+# Baku for X Slop (静貘 · Baku)
+
+> Baku for X Slop is an open-source Chrome extension (v0.2.0, MIT) that filters AI-generated template replies, copy-paste engagement bait, and promotional spam on X (x.com and twitter.com).
+
+## Official Links
+
+- [Product Homepage](https://baku.kuhung.me/): Overview, screenshots, five-stage companion, privacy architecture, and installation guide.
+- [Chrome Web Store](https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad): One-click Chrome extension installation (supports zh_CN and zh_TW).
+- [GitHub Repository (MIT)](https://github.com/kuhung/baku-for-x): Full extension and Cloudflare Worker source code.
+- [Privacy Policy](https://kuhung.me/baku-privacy/): Detailed disclosure of local storage, shared flywheel payloads, and salted IP-hash rate limiting.
+
+## Core Capabilities
+
+- Works out of the box on `x.com` and `twitter.com` with default reply-section scanning and optional full-timeline scanning.
+- Evaluates individual posts first before any multi-user escalation to shared account blocklists, reducing false positives on normal accounts.
+- Default silent hide display mode with a compact inline fold notice for 5+ consecutive filtered replies, plus an optional frosted glass mask mode.
+- Action-bar Baku icon for one-click single-post hiding with undo and block options, plus right-click / Shift-click menu for repost and quote authors.
+- Distinguishes single-post allowlisting from account-level trust whitelisting across popup quick review and the searchable management dashboard.
+- Unlocks five visual Baku companion stages at cumulative filtered counts of 0, 10, 100, 500, and 2,500.
+- Supports disabling the shared flywheel for local-only lists, configuring direct browser BYOK inference, or self-hosting the Cloudflare Worker backend.
