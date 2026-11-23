@@ -220,6 +220,93 @@ async function loadLocalSamples(dbFile) {
   return { source: 'builtin-benchmark', remoteSummary: null, samples: BUILTIN_BENCHMARK_SAMPLES };
 }
 
+function getArgValue(flag) {
+  const idx = process.argv.indexOf(flag);
+  return idx >= 0 && process.argv[idx + 1] && !process.argv[idx + 1].startsWith('--')
+    ? process.argv[idx + 1]
+    : '';
+}
+
+function loadAnnotationsMap(annotationsPath) {
+  if (!annotationsPath) return null;
+  const parsed = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), annotationsPath), 'utf8'));
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+}
+
+function loadDatasetSamples(datasetPath, annotationsPath = '') {
+  const resolved = path.resolve(process.cwd(), datasetPath);
+  const raw = fs.readFileSync(resolved, 'utf8').trim();
+  const rows = raw.startsWith('[')
+    ? JSON.parse(raw)
+    : raw
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+
+  const annMap = loadAnnotationsMap(annotationsPath);
+  const samples = [];
+  let skipped = 0;
+
+  for (const row of rows) {
+    const caseId = row.caseId || row.sampleId || '';
+    const inp = row.input && typeof row.input === 'object' ? row.input : row;
+    const rawText = String(inp.text || '').trim();
+    const isAccountPlaceholder =
+      (!rawText && !inp.quotedText) ||
+      (row.scope === 'account' && !inp.tweetId && !inp.quotedText && rawText.startsWith('（账号级申诉'));
+    if (isAccountPlaceholder) {
+      skipped += 1;
+      continue;
+    }
+
+    let verdict = null;
+    if (annMap && caseId && annMap[caseId]) {
+      verdict = annMap[caseId].verdict || null;
+    } else if (row.expectedVerdict) {
+      verdict = row.expectedVerdict;
+    } else if (row.signalType) {
+      verdict = isGroundTruthSlop(row.signalType) ? 'SLOP' : 'ALLOW';
+    }
+
+    const normalizedVerdict = String(verdict || '').toUpperCase();
+    if (normalizedVerdict !== 'SLOP' && normalizedVerdict !== 'ALLOW') {
+      skipped += 1;
+      continue;
+    }
+
+    const createdAt =
+      row.createdAt ||
+      row.modelEvidence?.userActionTime ||
+      row.modelEvidence?.modelTime ||
+      inp.createdAt ||
+      '';
+
+    samples.push({
+      sampleId: caseId || `row-${samples.length + 1}`,
+      tweetId: inp.tweetId || '',
+      handle: inp.handle || '',
+      displayName: inp.displayName || '',
+      text: inp.text || '',
+      quotedHandle: inp.quotedHandle || '',
+      quotedText: inp.quotedText || '',
+      parentHandle: inp.parentHandle || '',
+      parentText: inp.parentText || '',
+      isReply: Boolean(inp.isReply),
+      isVerified: Boolean(inp.isVerified),
+      signalType: normalizedVerdict === 'SLOP' ? 'FN_TWEET' : 'FP_TWEET',
+      createdAt,
+    });
+  }
+
+  return {
+    source: `${resolved}${annotationsPath ? ` + ${path.resolve(process.cwd(), annotationsPath)}` : ''}`,
+    remoteSummary: null,
+    samples,
+    skipped,
+  };
+}
+
 export function summarizeSamples(samples) {
   const byType = { FN_TWEET: 0, FP_TWEET: 0, FN_ACCOUNT: 0, FP_ACCOUNT: 0 };
   const handleCounts = new Map();
@@ -246,22 +333,37 @@ export async function evaluateWithVerifier(samples, aiVerifier) {
   let fp = 0;
   let tn = 0;
   let fn = 0;
+  let failures = 0;
   const mismatches = [];
 
-  const decisions = await aiVerifier.classifyTweetsBatch(
-    samples.map((s) => ({
-      tweetId: s.tweetId || s.sampleId,
-      handle: s.handle || '',
-      displayName: s.displayName || '',
-      text: s.text || '',
-      quotedHandle: s.quotedHandle || '',
-      quotedText: s.quotedText || '',
-    }))
-  );
+  const decisions = [];
+  for (let start = 0; start < samples.length; start += 50) {
+    const chunk = samples.slice(start, start + 50);
+    const batchOut = await aiVerifier.classifyTweetsBatch(
+      chunk.map((s) => ({
+        tweetId: s.tweetId || s.sampleId,
+        handle: s.handle || '',
+        displayName: s.displayName || '',
+        text: s.text || '',
+        quotedHandle: s.quotedHandle || '',
+        quotedText: s.quotedText || '',
+        parentHandle: s.parentHandle || '',
+        parentText: s.parentText || '',
+        isReply: Boolean(s.isReply),
+        isVerified: Boolean(s.isVerified),
+      }))
+    );
+    decisions.push(...batchOut);
+  }
 
   for (let i = 0; i < samples.length; i += 1) {
     const s = samples[i];
-    const res = decisions[i] || { verdict: 'ALLOW', reason: '' };
+    const res = decisions[i] || { verdict: 'ALLOW', source: 'ai_fallback_allow', reason: '' };
+    if (res.source === 'ai_fallback_allow' || res.source === 'ai_unconfigured') {
+      failures += 1;
+      continue;
+    }
+
     const expectedSlop = isGroundTruthSlop(s.signalType);
     const predictedSlop = res.verdict === 'SLOP';
 
@@ -274,6 +376,7 @@ export async function evaluateWithVerifier(samples, aiVerifier) {
         sampleId: s.sampleId,
         handle: s.handle,
         signalType: s.signalType,
+        slopProb: res.slopProb ?? null,
         reason: res.reason,
         text: (s.text || '').slice(0, 90),
       });
@@ -286,12 +389,15 @@ export async function evaluateWithVerifier(samples, aiVerifier) {
         sampleId: s.sampleId,
         handle: s.handle,
         signalType: s.signalType,
+        slopProb: res.slopProb ?? null,
         reason: res.reason,
         text: (s.text || '').slice(0, 90),
       });
     }
   }
 
+  const evaluated = tp + fp + tn + fn;
+  const accuracy = evaluated > 0 ? (tp + tn) / evaluated : 0;
   const precision = tp + fp > 0 ? tp / (tp + fp) : 1;
   const recall = tp + fn > 0 ? tp / (tp + fn) : 1;
   const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
@@ -299,10 +405,13 @@ export async function evaluateWithVerifier(samples, aiVerifier) {
 
   return {
     total: samples.length,
+    evaluated,
+    failures,
     tp,
     fp,
     tn,
     fn,
+    accuracy: Number(accuracy.toFixed(3)),
     precision: Number(precision.toFixed(3)),
     recall: Number(recall.toFixed(3)),
     f1: Number(f1.toFixed(3)),
@@ -311,16 +420,33 @@ export async function evaluateWithVerifier(samples, aiVerifier) {
   };
 }
 
+function printEvalReport(label, report) {
+  console.log(`\n[${label}] Evaluated=${report.evaluated}/${report.total}  Failures=${report.failures}`);
+  console.log(`Metrics      : TP=${report.tp}  FP=${report.fp}  TN=${report.tn}  FN=${report.fn}`);
+  console.log(
+    `Scores       : Acc=${(report.accuracy * 100).toFixed(1)}%  Precision=${(report.precision * 100).toFixed(1)}%  Recall=${(report.recall * 100).toFixed(1)}%  F1=${(report.f1 * 100).toFixed(1)}%  FP_Rate=${(report.fpRate * 100).toFixed(1)}%`
+  );
+  if (report.mismatches.length > 0) {
+    console.log('Mismatches:');
+    for (const m of report.mismatches) {
+      const probStr = typeof m.slopProb === 'number' ? ` p=${m.slopProb}` : '';
+      console.log(`  [${m.type}] ${m.sampleId} @${m.handle || 'unknown'} (${m.signalType}${probStr}) | ${m.reason} | "${m.text}"`);
+    }
+  }
+}
+
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
 if (isMain) {
   const isRemote = process.argv.includes('--remote');
   const showLogs = process.argv.includes('--logs');
   const shouldVerify = process.argv.includes('--verify');
-  const fileArgIdx = process.argv.indexOf('--file');
-  const targetDb =
-    fileArgIdx >= 0 && process.argv[fileArgIdx + 1]
-      ? path.resolve(process.cwd(), process.argv[fileArgIdx + 1])
-      : path.resolve(process.cwd(), 'server/data/flywheel.sqlite');
+  const datasetPath = getArgValue('--dataset');
+  const annotationsPath = getArgValue('--annotations');
+  const splitDate = getArgValue('--split-date');
+  const fileArg = getArgValue('--file');
+  const targetDb = fileArg
+    ? path.resolve(process.cwd(), fileArg)
+    : path.resolve(process.cwd(), 'server/data/flywheel.sqlite');
 
   if (showLogs) {
     const logsReport = await loadDecisionLogs({ isRemote, dbFile: targetDb, limit: 50 });
@@ -328,11 +454,17 @@ if (isMain) {
     process.exit(0);
   }
 
-  const { source, remoteSummary, samples } = isRemote ? await loadRemoteSamples() : await loadLocalSamples(targetDb);
+  let loaded;
+  if (datasetPath) {
+    loaded = loadDatasetSamples(datasetPath, annotationsPath);
+  } else {
+    loaded = isRemote ? await loadRemoteSamples() : await loadLocalSamples(targetDb);
+  }
+  const { source, remoteSummary, samples } = loaded;
   const summary = summarizeSamples(samples);
 
   console.log('=== Anti-Slop Flywheel Sample Inspection & Eval ===');
-  console.log(`Dataset      : ${source} (${summary.total} samples)`);
+  console.log(`Dataset      : ${source} (${summary.total} samples${loaded.skipped ? `, ${loaded.skipped} skipped` : ''})`);
   if (remoteSummary) {
     console.log(
       `Remote State : activeBlacklist=${remoteSummary.activeBlacklist}  slopPosts=${remoteSummary.slopPosts}  cachedPosts=${remoteSummary.cachedPosts}`
@@ -347,19 +479,34 @@ if (isMain) {
     );
   }
 
+  let inSample = null;
+  let outSample = null;
+  if (splitDate) {
+    const splitMs = Date.parse(splitDate);
+    if (Number.isNaN(splitMs)) {
+      console.error(`Invalid --split-date: ${splitDate}`);
+      process.exit(1);
+    }
+    inSample = samples.filter((s) => {
+      const ts = Date.parse(s.createdAt || '');
+      return !Number.isNaN(ts) && ts < splitMs;
+    });
+    outSample = samples.filter((s) => {
+      const ts = Date.parse(s.createdAt || '');
+      return !Number.isNaN(ts) && ts >= splitMs;
+    });
+    console.log(`TemporalSplit: < ${splitDate} -> In-Sample=${inSample.length}, >= ${splitDate} -> Out-of-Sample=${outSample.length}`);
+  }
+
   const aiVerifier = createAiVerifierFromEnv(process.env);
-  if (aiVerifier.isConfigured() && (shouldVerify || Boolean(process.env.GEMINI_API_KEY))) {
-    const report = await evaluateWithVerifier(samples.slice(0, 50), aiVerifier);
+  if (aiVerifier.isConfigured() && (shouldVerify || Boolean(process.env.GEMINI_API_KEY || process.env.AI_API_KEY))) {
     console.log(`\nModel Eval   : ${aiVerifier.provider} (${aiVerifier.model})`);
-    console.log(`Metrics      : TP=${report.tp}  FP=${report.fp}  TN=${report.tn}  FN=${report.fn}`);
-    console.log(
-      `Scores       : Precision=${(report.precision * 100).toFixed(1)}%  Recall=${(report.recall * 100).toFixed(1)}%  F1=${(report.f1 * 100).toFixed(1)}%  FP_Rate=${(report.fpRate * 100).toFixed(1)}%`
-    );
-    if (report.mismatches.length > 0) {
-      console.log('\nMismatches:');
-      for (const m of report.mismatches) {
-        console.log(`  [${m.type}] @${m.handle || 'unknown'} (${m.signalType}) | ${m.reason} | "${m.text}"`);
-      }
+    if (splitDate && inSample && outSample) {
+      if (inSample.length > 0) printEvalReport('In-Sample', await evaluateWithVerifier(inSample, aiVerifier));
+      if (outSample.length > 0) printEvalReport('Out-of-Sample', await evaluateWithVerifier(outSample, aiVerifier));
+    } else {
+      const evalTargets = datasetPath ? samples : samples.slice(0, 50);
+      printEvalReport('All', await evaluateWithVerifier(evalTargets, aiVerifier));
     }
   } else if (shouldVerify) {
     console.log('\n[eval] Skipped model replay: configure GEMINI_API_KEY to run AI replay.');

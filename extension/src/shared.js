@@ -351,6 +351,11 @@
   /**
    * Pure O(1) local allow/block list evaluation (content classification runs on Gemini Decisions).
    */
+  function isDiscoverMoreHeadingText(text) {
+    if (typeof text !== 'string') return false;
+    return /^(?:Discover more|更多发现|更多發現|探索更多|もっと見つける|더 찾아보기)$/i.test(text.trim());
+  }
+
   function evaluateLocalRules(item, lists = {}, options = {}) {
     const handle = normalizeHandle(item?.handle || '');
     const rtHandle = normalizeHandle(item?.retweeterHandle || '');
@@ -568,17 +573,18 @@
 
       const questions = {};
       const trueDesc =
-        '1) AI reply-guy / blue-check impression farming: restating or summarizing the Parent Post in pompous generic truisms (e.g. "本质是...", "最终回到商业账本/护城河") with zero new facts or personal experience; ' +
-        '2) Keyword-hooked hollow metaphors or generic cheerleading that picks terms from the Parent Post just to sound clever without substance; ' +
-        '3) Engagement bait ("comment X for DM"), crypto airdrop/wallet/rebate shills, templated rage-bait, or off-topic spam.';
+        '具有明显「AI 味/人机腔」、营销号套路或引流推广意图的内容（即使看起来有数据、攻略或貌似有道理）：' +
+        '1) AI 写作与评论腔：假认同+总结升华（「最认同的一点：」「同感。真正危险的是…」）、工整的中文冒号总分体或攻略模板（「怎么买不踩坑…适合/不适合」）、破折号（「——」）金句收尾、刻意工整的三段式比喻/抖机灵对仗、圆滑的「看着挺香但…」「X是一回事，Y会…」「但…事实上…不过…」分析腔、生硬的英文/机翻夸大资讯腔（「这太疯狂了」「这篇文章精准地指出了…」）、装深刻的长段说教；' +
+        '2) 软广与营销引流：先共情痛点或吐槽竞品再顺势推销插件/API/工具/券商开户、惊叹号+👇一惊一乍导流、夸张大师课/假新闻段子搬运；' +
+        '3) 养号与水军：互关涨粉标签（#蓝V互关 #真诚交友）、垃圾引战或无意义套话。';
       const falseDesc =
-        'Genuine human post or reply contributing concrete facts, specific technical details, real personal experience, sharp direct disagreement, specific questions, grounded humor, or original news/updates.';
+        '自然随口的「活人表达」或正常平台功能互动：简短口语反应、随手点赞/夸赞/附和、日常吐槽与粗口、真实社区玩梗、直接干脆的短反驳或提问、艾特 @grok / @bot 等功能召唤、粗糙真实的一手排障经历，或官方/工具账号的正常公告。';
 
       for (let idx = 0; idx < chunk.length; idx += 1) {
         const item = chunk[idx];
         questions[`p_${idx}_slop`] = {
           type: 'noul',
-          instructions: `Evaluate ONLY item [${idx}]. Is item [${idx}] X/Twitter slop (especially AI reply-guy filler, engagement-farming truisms, or spam) that should be hidden?`,
+          instructions: `Evaluate ONLY item [${idx}]. Judge whether item [${idx}] is AI-written/robotic slop, marketing/promo copy, or account-farming content that should be hidden (TRUE), versus natural spontaneous human speech or utility interaction (FALSE).`,
           criteria: { true_description: trueDesc, false_description: falseDesc },
         };
         if (item.quotedText || item.quotedHandle) {
@@ -617,8 +623,8 @@
         const handle = normalizeHandle(item.handle);
         const quotedHandle = normalizeHandle(item.quotedHandle);
         const slopAns = readNoul(answers[`p_${idx}_slop`]);
-        const probThreshold = item.isReply ? 0.65 : 0.72;
-        const confThreshold = item.isReply ? 0.55 : 0.6;
+        const probThreshold = item.isReply ? 0.5 : 0.55;
+        const confThreshold = item.isReply ? 0.5 : 0.55;
         const isSlop = slopAns.prob !== null && slopAns.prob >= probThreshold && slopAns.confidence >= confThreshold;
 
         if (!isSlop) {
@@ -1043,6 +1049,7 @@
     normalizeSettings,
     resolveFlywheelUrl,
     normalizeHandle,
+    isDiscoverMoreHeadingText,
     extractTweetData,
     evaluateLocalRules,
     shouldQueryAiClassifier,

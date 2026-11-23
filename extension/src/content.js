@@ -7,7 +7,7 @@
     }
   }
 
-  const { extractTweetData, normalizeDisplayMode, normalizeHandle, sendMessage, el } =
+  const { extractTweetData, isDiscoverMoreHeadingText, normalizeDisplayMode, normalizeHandle, sendMessage, el } =
     window.AntiSlopShared;
 
   const ARTICLE_SELECTOR = 'article[data-testid="tweet"], article[role="article"]';
@@ -1022,6 +1022,7 @@
 
     const articles = Array.from(document.querySelectorAll(ARTICLE_SELECTOR));
     let focalIdx = -1;
+    let discoverMoreEl = null;
     if (focalTweetId) {
       for (let i = 0; i < articles.length; i += 1) {
         if (articles[i].querySelector(`a[href*="/status/${focalTweetId}"]`)) {
@@ -1037,19 +1038,35 @@
           }
         }
       }
+
+      const col = document.querySelector('[data-testid="primaryColumn"]') || document;
+      const headingCandidates = col.querySelectorAll('h2, [role="heading"], [data-testid="cellInnerDiv"] span');
+      for (const node of headingCandidates) {
+        if (node.closest(ARTICLE_SELECTOR)) continue;
+        if (isDiscoverMoreHeadingText(node.textContent || '')) {
+          discoverMoreEl = node;
+          break;
+        }
+      }
     }
 
     for (let i = 0; i < articles.length; i += 1) {
       const articleEl = articles[i];
-      const afterFocal = focalTweetId
-        ? focalIdx >= 0
-          ? i > focalIdx
-          : Boolean(cachedFocalPost && cachedFocalPost.tweetId === focalTweetId)
-        : false;
+      const inDiscoverMore = Boolean(
+        discoverMoreEl &&
+          typeof discoverMoreEl.compareDocumentPosition === 'function' &&
+          (discoverMoreEl.compareDocumentPosition(articleEl) & Node.DOCUMENT_POSITION_FOLLOWING)
+      );
+      const afterFocal =
+        focalTweetId && !inDiscoverMore
+          ? focalIdx >= 0
+            ? i > focalIdx
+            : Boolean(cachedFocalPost && cachedFocalPost.tweetId === focalTweetId)
+          : false;
       const item = extractTweetData(articleEl, focalTweetId ? { focalTweetId, afterFocal } : {});
       if (!item) continue;
       if (selfHandle) item.selfHandle = selfHandle;
-      if (item.isReply && cachedFocalPost && cachedFocalPost.tweetId === focalTweetId) {
+      if (item.isReply && !inDiscoverMore && cachedFocalPost && cachedFocalPost.tweetId === focalTweetId) {
         item.parentHandle = cachedFocalPost.handle;
         item.parentText = cachedFocalPost.text;
       }

@@ -10,6 +10,7 @@ const {
   getBakuStageIndex,
   resolveBakuStage,
   normalizeHandle,
+  isDiscoverMoreHeadingText,
   normalizeBadgeMode,
   normalizeSettings,
   resolveFlywheelUrl,
@@ -118,11 +119,22 @@ test('extractTweetData extracts tweetId, handle, text, publishedAt, isVerified, 
   assert.equal(data.publishedAt, '2026-11-18T11:00:00.000Z');
   assert.equal(data.accountMeta, undefined);
 
-  // Detail-page context marks replies after focal tweet while exempting the focal tweet itself
+  // Detail-page context marks replies after focal tweet while exempting the focal tweet itself and "Discover more" items
   const focalData = extractTweetData(articleEl, { focalTweetId: '185000999888', afterFocal: false });
   assert.equal(focalData.isReply, false);
   const replyData = extractTweetData(articleEl, { focalTweetId: '999999999999', afterFocal: true });
   assert.equal(replyData.isReply, true);
+  const discoverMoreData = extractTweetData(articleEl, { focalTweetId: '999999999999', afterFocal: false });
+  assert.equal(discoverMoreData.isReply, false);
+
+  assert.equal(isDiscoverMoreHeadingText('Discover more'), true);
+  assert.equal(isDiscoverMoreHeadingText('更多发现'), true);
+  assert.equal(isDiscoverMoreHeadingText('更多發現'), true);
+  assert.equal(isDiscoverMoreHeadingText('探索更多'), true);
+  assert.equal(isDiscoverMoreHeadingText('もっと見つける'), true);
+  assert.equal(isDiscoverMoreHeadingText('더 찾아보기'), true);
+  assert.equal(isDiscoverMoreHeadingText('Discover more about AI agents'), false);
+  assert.equal(isDiscoverMoreHeadingText(''), false);
 });
 
 test('extractTweetData detects reply banner outside tweetText without misclassifying body text', () => {
