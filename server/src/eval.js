@@ -153,15 +153,32 @@ function printDecisionLogsReport({ source, logs }) {
   else clean.forEach((r) => console.log(formatLogEntry(r)));
 }
 
+const SAMPLE_SELECT_COLS =
+  'id, signal_type, handle, tweet_id, display_name, text, quoted_handle, quoted_text, parent_handle, parent_text, is_reply, is_verified, orig_verdict, orig_slop_prob, orig_source, created_at';
+
+function mapDbSampleRow(r, prefix) {
+  return {
+    sampleId: `${prefix}-${r.id}`,
+    handle: r.handle,
+    tweetId: r.tweet_id,
+    displayName: r.display_name,
+    text: r.text,
+    quotedHandle: r.quoted_handle || '',
+    quotedText: r.quoted_text || '',
+    parentHandle: r.parent_handle || '',
+    parentText: r.parent_text || '',
+    isReply: Boolean(r.is_reply),
+    isVerified: Boolean(r.is_verified),
+    origVerdict: r.orig_verdict || '',
+    origSlopProb: r.orig_slop_prob ?? null,
+    origSource: r.orig_source || '',
+    signalType: r.signal_type,
+    createdAt: r.created_at,
+  };
+}
+
 async function loadRemoteSamples() {
-  const rows = queryRemoteD1(
-    `SELECT id, signal_type, handle, tweet_id, display_name, text,
-            quoted_handle, quoted_text, parent_handle, parent_text,
-            is_reply, is_verified, orig_verdict, orig_slop_prob, orig_source, created_at
-     FROM flywheel_samples
-     ORDER BY id DESC
-     LIMIT 500`
-  );
+  const rows = queryRemoteD1(`SELECT ${SAMPLE_SELECT_COLS} FROM flywheel_samples ORDER BY id DESC LIMIT 500`);
   const statsRows = queryRemoteD1(
     `SELECT
        active_blacklist_count AS activeBlacklist,
@@ -173,24 +190,7 @@ async function loadRemoteSamples() {
   return {
     source: 'remote-d1:anti-slop-db',
     remoteSummary: statsRows[0] || null,
-    samples: rows.map((r) => ({
-      sampleId: `d1-${r.id}`,
-      handle: r.handle,
-      tweetId: r.tweet_id,
-      displayName: r.display_name,
-      text: r.text,
-      quotedHandle: r.quoted_handle || '',
-      quotedText: r.quoted_text || '',
-      parentHandle: r.parent_handle || '',
-      parentText: r.parent_text || '',
-      isReply: Boolean(r.is_reply),
-      isVerified: Boolean(r.is_verified),
-      origVerdict: r.orig_verdict || '',
-      origSlopProb: r.orig_slop_prob ?? null,
-      origSource: r.orig_source || '',
-      signalType: r.signal_type,
-      createdAt: r.created_at,
-    })),
+    samples: rows.map((r) => mapDbSampleRow(r, 'd1')),
   };
 }
 
@@ -203,37 +203,13 @@ async function loadLocalSamples(dbFile) {
         .first();
       if (table) {
         const res = await db
-          .prepare(
-            `SELECT id, signal_type, handle, tweet_id, display_name, text,
-                    quoted_handle, quoted_text, parent_handle, parent_text,
-                    is_reply, is_verified, orig_verdict, orig_slop_prob, orig_source, created_at
-             FROM flywheel_samples
-             ORDER BY id DESC
-             LIMIT 1000`
-          )
+          .prepare(`SELECT ${SAMPLE_SELECT_COLS} FROM flywheel_samples ORDER BY id DESC LIMIT 1000`)
           .all();
         if (Array.isArray(res.results) && res.results.length > 0) {
           return {
             source: dbFile,
             remoteSummary: null,
-            samples: res.results.map((r) => ({
-              sampleId: `db-${r.id}`,
-              handle: r.handle,
-              tweetId: r.tweet_id,
-              displayName: r.display_name,
-              text: r.text,
-              quotedHandle: r.quoted_handle || '',
-              quotedText: r.quoted_text || '',
-              parentHandle: r.parent_handle || '',
-              parentText: r.parent_text || '',
-              isReply: Boolean(r.is_reply),
-              isVerified: Boolean(r.is_verified),
-              origVerdict: r.orig_verdict || '',
-              origSlopProb: r.orig_slop_prob ?? null,
-              origSource: r.orig_source || '',
-              signalType: r.signal_type,
-              createdAt: r.created_at,
-            })),
+            samples: res.results.map((r) => mapDbSampleRow(r, 'db')),
           };
         }
       }

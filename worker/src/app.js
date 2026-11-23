@@ -1,4 +1,4 @@
-import { FlywheelStore, isCacheableTweetId, normalizeHandle } from './flywheelStore.js';
+import { FlywheelStore, isCacheableTweetId, normalizeHandle, resolvePostSlopProb } from './flywheelStore.js';
 import { createAiVerifierFromEnv } from './aiVerifier.js';
 
 const CORS_HEADERS = {
@@ -330,14 +330,7 @@ export function createFlywheelApp(options = {}) {
               verdict: cached.verdict === 'SLOP' ? 'SLOP' : 'ALLOW',
               scope: 'TWEET',
               confidence: Number(cached.confidence || 0),
-              slopProb:
-                cached.slop_prob !== null && cached.slop_prob !== undefined
-                  ? Number(cached.slop_prob)
-                  : cached.source === 'ai_model'
-                    ? cached.verdict === 'SLOP'
-                      ? Number(cached.confidence || 0)
-                      : Number((1 - Number(cached.confidence || 0)).toFixed(3))
-                    : null,
+              slopProb: resolvePostSlopProb(cached),
               source: 'post_cache',
               reason: cached.reason || 'Cached post decision',
             };

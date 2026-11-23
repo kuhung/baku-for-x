@@ -217,7 +217,7 @@ function normalizeOrigVerdict(val) {
   return upper === 'SLOP' || upper === 'ALLOW' ? upper : '';
 }
 
-function resolvePostSlopProb(row) {
+export function resolvePostSlopProb(row) {
   if (!row) return null;
   const explicit = parseNullableProb(row.slop_prob ?? row.slopProb);
   if (explicit !== null) return explicit;
@@ -899,6 +899,21 @@ export class FlywheelStore {
     const now = new Date().toISOString();
     const today = now.slice(0, 10);
     const cacheableTweet = isCacheableTweetId(tweetId, handle);
+    const sampleContext = {
+      handle,
+      tweetId,
+      displayName,
+      text,
+      quotedHandle,
+      quotedText,
+      parentHandle,
+      parentText,
+      isReply,
+      isVerified,
+      reason,
+      clientId,
+      now,
+    };
 
     const loadExistingPost = async () =>
       cacheableTweet
@@ -940,23 +955,7 @@ export class FlywheelStore {
       }
       const existingPost = await loadExistingPost();
       const origSnapshot = resolveOrigSnapshot(existingPost);
-      await this._insertSample({
-        signalType: 'FN_TWEET',
-        handle,
-        tweetId,
-        displayName,
-        text,
-        quotedHandle,
-        quotedText,
-        parentHandle,
-        parentText,
-        isReply,
-        isVerified,
-        ...origSnapshot,
-        reason,
-        clientId,
-        now,
-      });
+      await this._insertSample({ signalType: 'FN_TWEET', ...sampleContext, ...origSnapshot });
 
       if (!cacheableTweet) {
         return { ok: true, type, handle, tweetId, postVerdict: 'PENDING', escalated: false };
@@ -1045,23 +1044,7 @@ export class FlywheelStore {
       }
       const existingPost = await loadExistingPost();
       const origSnapshot = resolveOrigSnapshot(existingPost);
-      await this._insertSample({
-        signalType: 'FP_TWEET',
-        handle,
-        tweetId,
-        displayName,
-        text,
-        quotedHandle,
-        quotedText,
-        parentHandle,
-        parentText,
-        isReply,
-        isVerified,
-        ...origSnapshot,
-        reason,
-        clientId,
-        now,
-      });
+      await this._insertSample({ signalType: 'FP_TWEET', ...sampleContext, ...origSnapshot });
 
       if (!cacheableTweet) {
         return { ok: true, type, handle, tweetId, flippedToAllow: false };
@@ -1130,23 +1113,7 @@ export class FlywheelStore {
 
       const existingPost = await loadExistingPost();
       const origSnapshot = resolveOrigSnapshot(existingPost);
-      await this._insertSample({
-        signalType: 'FN_ACCOUNT',
-        handle,
-        tweetId,
-        displayName,
-        text,
-        quotedHandle,
-        quotedText,
-        parentHandle,
-        parentText,
-        isReply,
-        isVerified,
-        ...origSnapshot,
-        reason,
-        clientId,
-        now,
-      });
+      await this._insertSample({ signalType: 'FN_ACCOUNT', ...sampleContext, ...origSnapshot });
 
       const { reportCount, appealCount } = await this._getVoteCounts(handle);
       const netVotes = reportCount - 2 * appealCount;
@@ -1332,23 +1299,7 @@ export class FlywheelStore {
 
       const existingPost = await loadExistingPost();
       const origSnapshot = resolveOrigSnapshot(existingPost);
-      await this._insertSample({
-        signalType: 'FP_ACCOUNT',
-        handle,
-        tweetId,
-        displayName,
-        text,
-        quotedHandle,
-        quotedText,
-        parentHandle,
-        parentText,
-        isReply,
-        isVerified,
-        ...origSnapshot,
-        reason,
-        clientId,
-        now,
-      });
+      await this._insertSample({ signalType: 'FP_ACCOUNT', ...sampleContext, ...origSnapshot });
 
       const { reportCount, appealCount } = await this._getVoteCounts(handle);
       const existing = await this._getBlacklistRow(handle);

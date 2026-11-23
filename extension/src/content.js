@@ -398,17 +398,20 @@
     await actionPromise;
   }
 
+  function attachDecisionSnapshot(item, result) {
+    if (!item || !result) return item || null;
+    return {
+      ...item,
+      origVerdict: result.verdict || '',
+      origSlopProb: result.slopProb ?? null,
+      origSource: result.source || '',
+    };
+  }
+
   async function triggerAllowSingleTweet(articleEl, item) {
     if (!item?.tweetId) return;
     const prevResult = processedArticles.get(articleEl)?.result || null;
-    const snapshot = prevResult
-      ? {
-          ...item,
-          origVerdict: prevResult.verdict || '',
-          origSlopProb: prevResult.slopProb ?? null,
-          origSource: prevResult.source || '',
-        }
-      : item;
+    const snapshot = attachDecisionSnapshot(item, prevResult);
     restoreSingleArticle(articleEl, item, 'allowed_tweet');
     const actionPromise = sendMessage({
       type: 'ALLOW_TWEET',
@@ -678,18 +681,10 @@
         }
         if (targetHandle) {
           const indirect = normalizeHandle(item?.handle) !== targetHandle;
-          const snapshot = item
-            ? {
-                ...item,
-                origVerdict: result?.verdict || '',
-                origSlopProb: result?.slopProb ?? null,
-                origSource: result?.source || '',
-              }
-            : null;
           opts.push({
             label: indirect ? `信任关联账号 @${targetHandle}` : `信任账号 @${targetHandle}`,
             sub: '加入白名单，不再拦截该账号',
-            onClick: () => triggerWhitelistRecovery(targetHandle, item?.tweetId || null, snapshot),
+            onClick: () => triggerWhitelistRecovery(targetHandle, item?.tweetId || null, attachDecisionSnapshot(item, result)),
           });
         }
         if (opts.length === 1) opts[0].onClick();
