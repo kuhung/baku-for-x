@@ -1,6 +1,6 @@
-# Baku for X Slop 应用商店发布说明（v0.2.1）
+# Baku for X Slop 应用商店发布说明（v0.2.2）
 
-核对日期：2026-11-21
+核对日期：2026-11-23
 
 本文件整理 Chrome Web Store 与 Microsoft Edge Add-ons 商店所需的发布字段与双语文案（简体中文 `zh_CN`、繁体中文 `zh_TW`），简短描述与 `extension/_locales/*/messages.json` 保持完全一致。
 
@@ -11,7 +11,7 @@
 | 字段 | 填写内容 |
 |---|---|
 | 扩展名称 | `Baku for X Slop`（由 `manifest.json` 的 `__MSG_extName__` 自动读取） |
-| 版本号 | `0.2.1` |
+| 版本号 | `0.2.2` |
 | 语言 | 勾选 `中文 (简体)` 与 `中文 (繁体)`（移除纯英文列表项，与产品界面及文案一致） |
 | 分类 | Social Networking / 社交通讯 |
 | 官方网站 / 开源仓库 | `https://github.com/kuhung/baku-for-x` |

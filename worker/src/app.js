@@ -330,6 +330,14 @@ export function createFlywheelApp(options = {}) {
               verdict: cached.verdict === 'SLOP' ? 'SLOP' : 'ALLOW',
               scope: 'TWEET',
               confidence: Number(cached.confidence || 0),
+              slopProb:
+                cached.slop_prob !== null && cached.slop_prob !== undefined
+                  ? Number(cached.slop_prob)
+                  : cached.source === 'ai_model'
+                    ? cached.verdict === 'SLOP'
+                      ? Number(cached.confidence || 0)
+                      : Number((1 - Number(cached.confidence || 0)).toFixed(3))
+                    : null,
               source: 'post_cache',
               reason: cached.reason || 'Cached post decision',
             };
@@ -415,6 +423,7 @@ export function createFlywheelApp(options = {}) {
                       handle: targetHandle,
                       verdict: resItem.verdict,
                       confidence: resItem.confidence || 0,
+                      slopProb: probNum,
                       source: 'ai_model',
                       reason: resItem.reason || '',
                     });

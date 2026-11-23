@@ -1,6 +1,6 @@
 # Baku for X Slop (静貘 · Baku)
 
-> Baku for X Slop is an open-source Chrome extension (v0.2.1, MIT) that filters AI-generated template replies, copy-paste engagement bait, and promotional spam on X (x.com and twitter.com).
+> Baku for X Slop is an open-source Chrome extension (v0.2.2, MIT) that filters AI-generated template replies, copy-paste engagement bait, and promotional spam on X (x.com and twitter.com).
 
 ## Official Links
 

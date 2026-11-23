@@ -684,3 +684,225 @@ test('FlywheelStore maintains flywheel_counters via triggers, caches getStats, p
     trackedDb.close();
   }
 });
+
+test('FlywheelStore preserves context & original AI scores in flywheel_samples/post_decisions and migrates pre-0.2.2 schemas cleanly', async () => {
+  const { FlywheelStore } = await import('../../worker/src/flywheelStore.js');
+  const { createSqliteD1Database } = await import('../src/d1Sqlite.js');
+
+  // 1. Test idempotent migration from pre-0.2.2 tables lacking the new columns
+  const legacyDb = createSqliteD1Database(':memory:');
+  try {
+    await legacyDb.exec(`
+      CREATE TABLE post_decisions (
+        tweet_id TEXT PRIMARY KEY,
+        handle TEXT NOT NULL DEFAULT '',
+        verdict TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 0,
+        source TEXT NOT NULL DEFAULT 'ai_model',
+        reason TEXT NOT NULL DEFAULT '',
+        report_count INTEGER NOT NULL DEFAULT 0,
+        appeal_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE flywheel_samples (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_type TEXT NOT NULL,
+        handle TEXT NOT NULL DEFAULT '',
+        tweet_id TEXT NOT NULL DEFAULT '',
+        display_name TEXT NOT NULL DEFAULT '',
+        text TEXT NOT NULL DEFAULT '',
+        quoted_text TEXT NOT NULL DEFAULT '',
+        reason TEXT NOT NULL DEFAULT '',
+        client_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (client_id, signal_type, handle, tweet_id)
+      );
+    `);
+    const legacyStore = new FlywheelStore(legacyDb, { statsCacheTtlMs: 0 });
+    await legacyStore.ensureSchema();
+    // Re-running migration should be a safe no-op
+    await legacyStore._ensureColumnMigrations();
+
+    await legacyStore.savePostDecisions([
+      { tweetId: '500001', handle: 'legacy_u', verdict: 'SLOP', confidence: 0.81, slopProb: 0.81, source: 'ai_model' },
+    ]);
+    await legacyStore.recordSignal({
+      type: 'APPEAL_TWEET',
+      tweetId: '500001',
+      handle: 'legacy_u',
+      text: 'Short genuine reply',
+      parentHandle: 'op_legacy',
+      parentText: 'Parent body',
+      quotedHandle: 'q_legacy',
+      quotedText: 'Quoted body',
+      isReply: true,
+      isVerified: true,
+      clientId: 'cli-1',
+    });
+
+    const migratedSample = await legacyDb
+      .prepare('SELECT quoted_handle, parent_handle, parent_text, is_reply, is_verified, orig_verdict, orig_slop_prob, orig_source FROM flywheel_samples WHERE tweet_id = ?')
+      .bind('500001')
+      .first();
+    assert.equal(migratedSample.quoted_handle, 'q_legacy');
+    assert.equal(migratedSample.parent_handle, 'op_legacy');
+    assert.equal(migratedSample.parent_text, 'Parent body');
+    assert.equal(migratedSample.is_reply, 1);
+    assert.equal(migratedSample.is_verified, 1);
+    assert.equal(migratedSample.orig_verdict, 'SLOP');
+    assert.equal(migratedSample.orig_slop_prob, 0.81);
+    assert.equal(migratedSample.orig_source, 'ai_model');
+
+    const postAfterAppeal = await legacyDb
+      .prepare('SELECT verdict, source, slop_prob FROM post_decisions WHERE tweet_id = ?')
+      .bind('500001')
+      .first();
+    assert.equal(postAfterAppeal.verdict, 'ALLOW');
+    assert.equal(postAfterAppeal.source, 'appealed');
+    assert.equal(postAfterAppeal.slop_prob, 0.81);
+  } finally {
+    legacyDb.close();
+  }
+
+  // 2. End-to-end HTTP test verifying slopProb in post_cache and context forwarding on BLOCK_TWEET / APPEAL_TWEET
+  const capturedVerifierItems = [];
+  let missedAiCalls = 0;
+  const mockGemini = new AiVerifier({
+    geminiKey: 'gm-test-key',
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      capturedVerifierItems.push(body.input);
+      const answers = {};
+      if (body.input.includes('Appealable slop reply')) {
+        answers.p_0_slop = { type: 'noul', noul: 0.83, confidence: 0.91 };
+      } else if (body.input.includes('Missed AI slop')) {
+        missedAiCalls += 1;
+        answers.p_0_slop =
+          missedAiCalls === 1
+            ? { type: 'noul', noul: 0.31, confidence: 0.69 }
+            : { type: 'noul', noul: 0.79, confidence: 0.88 };
+      }
+      return new Response(JSON.stringify({ answers }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+
+  const srv = await startTestServer({ reportQuorum: 2, aiVerifier: mockGemini });
+  try {
+    // Classify SLOP item -> post_decisions stores slop_prob=0.83 -> APPEAL_TWEET snapshots SLOP/0.83 and preserves post_decisions.slop_prob
+    await fetch(`${srv.baseUrl}/api/v1/classify/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: [
+          {
+            tweetId: '500010',
+            handle: 'human_replier',
+            isReply: true,
+            isVerified: true,
+            parentHandle: 'focal_author',
+            parentText: 'Thread context text',
+            text: 'Appealable slop reply',
+          },
+        ],
+      }),
+    });
+
+    const cachedHit = await (
+      await fetch(`${srv.baseUrl}/api/v1/classify/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [{ tweetId: '500010', handle: 'human_replier', text: 'Appealable slop reply' }],
+        }),
+      })
+    ).json();
+    assert.equal(cachedHit.results[0].source, 'post_cache');
+    assert.equal(cachedHit.results[0].slopProb, 0.83);
+
+    await fetch(`${srv.baseUrl}/api/v1/signal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'APPEAL_TWEET',
+        tweetId: '500010',
+        handle: 'human_replier',
+        quotedHandle: 'q_author',
+        quotedText: 'Quoted clip',
+        parentHandle: 'focal_author',
+        parentText: 'Thread context text',
+        isReply: true,
+        isVerified: true,
+        text: 'Appealable slop reply',
+        clientId: 'cli-a',
+      }),
+    });
+
+    const fpSample = await srv.db
+      .prepare('SELECT orig_verdict, orig_slop_prob, orig_source, parent_handle, parent_text, quoted_handle, is_reply, is_verified FROM flywheel_samples WHERE tweet_id = ?')
+      .bind('500010')
+      .first();
+    assert.equal(fpSample.orig_verdict, 'SLOP');
+    assert.equal(fpSample.orig_slop_prob, 0.83);
+    assert.equal(fpSample.orig_source, 'ai_model');
+    assert.equal(fpSample.parent_handle, 'focal_author');
+    assert.equal(fpSample.parent_text, 'Thread context text');
+    assert.equal(fpSample.quoted_handle, 'q_author');
+    assert.equal(fpSample.is_reply, 1);
+    assert.equal(fpSample.is_verified, 1);
+
+    const postRow = await srv.db.prepare('SELECT verdict, source, slop_prob FROM post_decisions WHERE tweet_id = ?').bind('500010').first();
+    assert.equal(postRow.verdict, 'ALLOW');
+    assert.equal(postRow.source, 'appealed');
+    assert.equal(postRow.slop_prob, 0.83);
+
+    // Classify ALLOW item (p=0.31) -> BLOCK_TWEET preserves orig_verdict=ALLOW/0.31 AND passes parentText/isReply/isVerified to AI verification
+    await fetch(`${srv.baseUrl}/api/v1/classify/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: [
+          {
+            tweetId: '500011',
+            handle: 'slop_missed',
+            isReply: true,
+            isVerified: true,
+            parentHandle: 'focal_author',
+            parentText: 'Original focal post for FN',
+            text: 'Missed AI slop text',
+          },
+        ],
+      }),
+    });
+
+    await fetch(`${srv.baseUrl}/api/v1/signal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'BLOCK_TWEET',
+        tweetId: '500011',
+        handle: 'slop_missed',
+        isReply: true,
+        isVerified: true,
+        parentHandle: 'focal_author',
+        parentText: 'Original focal post for FN',
+        text: 'Missed AI slop text',
+        clientId: 'cli-b',
+      }),
+    });
+
+    const fnSample = await srv.db
+      .prepare('SELECT orig_verdict, orig_slop_prob, orig_source, parent_handle, parent_text, is_reply, is_verified FROM flywheel_samples WHERE tweet_id = ?')
+      .bind('500011')
+      .first();
+    assert.equal(fnSample.orig_verdict, 'ALLOW');
+    assert.equal(fnSample.orig_slop_prob, 0.31);
+    assert.equal(fnSample.orig_source, 'ai_model');
+    assert.equal(fnSample.parent_handle, 'focal_author');
+    assert.equal(fnSample.is_reply, 1);
+    assert.equal(fnSample.is_verified, 1);
+    assert.ok(capturedVerifierItems[capturedVerifierItems.length - 1].includes('Original focal post for FN'));
+  } finally {
+    await srv.close();
+  }
+});

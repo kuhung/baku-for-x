@@ -155,7 +155,12 @@ function printDecisionLogsReport({ source, logs }) {
 
 async function loadRemoteSamples() {
   const rows = queryRemoteD1(
-    'SELECT id, signal_type, handle, tweet_id, display_name, text, quoted_text, created_at FROM flywheel_samples ORDER BY id DESC LIMIT 500'
+    `SELECT id, signal_type, handle, tweet_id, display_name, text,
+            quoted_handle, quoted_text, parent_handle, parent_text,
+            is_reply, is_verified, orig_verdict, orig_slop_prob, orig_source, created_at
+     FROM flywheel_samples
+     ORDER BY id DESC
+     LIMIT 500`
   );
   const statsRows = queryRemoteD1(
     `SELECT
@@ -174,7 +179,15 @@ async function loadRemoteSamples() {
       tweetId: r.tweet_id,
       displayName: r.display_name,
       text: r.text,
-      quotedText: r.quoted_text,
+      quotedHandle: r.quoted_handle || '',
+      quotedText: r.quoted_text || '',
+      parentHandle: r.parent_handle || '',
+      parentText: r.parent_text || '',
+      isReply: Boolean(r.is_reply),
+      isVerified: Boolean(r.is_verified),
+      origVerdict: r.orig_verdict || '',
+      origSlopProb: r.orig_slop_prob ?? null,
+      origSource: r.orig_source || '',
       signalType: r.signal_type,
       createdAt: r.created_at,
     })),
@@ -191,7 +204,12 @@ async function loadLocalSamples(dbFile) {
       if (table) {
         const res = await db
           .prepare(
-            'SELECT id, signal_type, handle, tweet_id, display_name, text, quoted_text, created_at FROM flywheel_samples ORDER BY id DESC LIMIT 1000'
+            `SELECT id, signal_type, handle, tweet_id, display_name, text,
+                    quoted_handle, quoted_text, parent_handle, parent_text,
+                    is_reply, is_verified, orig_verdict, orig_slop_prob, orig_source, created_at
+             FROM flywheel_samples
+             ORDER BY id DESC
+             LIMIT 1000`
           )
           .all();
         if (Array.isArray(res.results) && res.results.length > 0) {
@@ -204,7 +222,15 @@ async function loadLocalSamples(dbFile) {
               tweetId: r.tweet_id,
               displayName: r.display_name,
               text: r.text,
-              quotedText: r.quoted_text,
+              quotedHandle: r.quoted_handle || '',
+              quotedText: r.quoted_text || '',
+              parentHandle: r.parent_handle || '',
+              parentText: r.parent_text || '',
+              isReply: Boolean(r.is_reply),
+              isVerified: Boolean(r.is_verified),
+              origVerdict: r.orig_verdict || '',
+              origSlopProb: r.orig_slop_prob ?? null,
+              origSource: r.orig_source || '',
               signalType: r.signal_type,
               createdAt: r.created_at,
             })),

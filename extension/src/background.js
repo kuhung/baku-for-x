@@ -126,6 +126,11 @@ if (typeof importScripts === 'function') {
         text: typeof entry.text === 'string' ? entry.text.slice(0, 600) : '',
         quotedHandle: normalizeHandle(entry.quotedHandle || ''),
         quotedText: typeof entry.quotedText === 'string' ? entry.quotedText.slice(0, 300) : '',
+        parentHandle: normalizeHandle(entry.parentHandle || ''),
+        parentText: typeof entry.parentText === 'string' ? entry.parentText.slice(0, 240) : '',
+        isReply: Boolean(entry.isReply),
+        isVerified: Boolean(entry.isVerified),
+        slopProb: typeof entry.slopProb === 'number' && Number.isFinite(entry.slopProb) ? entry.slopProb : null,
         scope: entry.scope === 'ACCOUNT' ? 'ACCOUNT' : 'TWEET',
         source: entry.source || 'ai_model',
         reason: typeof entry.reason === 'string' ? entry.reason.slice(0, 200) : '',
@@ -135,6 +140,14 @@ if (typeof importScripts === 'function') {
     for (let i = newEntries.length - 1; i >= 0; i -= 1) pushIfNew(newEntries[i]);
     if (Array.isArray(existingList)) existingList.forEach(pushIfNew);
     return out.slice(0, MAX_RECENT_INTERCEPTED);
+  }
+
+  function resolveOriginalSignalFields(snap = {}, cachedVerdict = null, fallbackVerdict = '') {
+    const verdict = snap?.origVerdict || snap?.verdict || cachedVerdict?.verdict || fallbackVerdict || '';
+    const rawProb = snap?.origSlopProb ?? snap?.slopProb ?? cachedVerdict?.slopProb;
+    const slopProb = typeof rawProb === 'number' && Number.isFinite(rawProb) ? rawProb : null;
+    const source = snap?.origSource || snap?.source || cachedVerdict?.source || '';
+    return { origVerdict: verdict, origSlopProb: slopProb, origSource: source };
   }
 
   function buildHeaders(settings, withJson = false) {
@@ -701,6 +714,11 @@ if (typeof importScripts === 'function') {
                 text: it.text || '',
                 quotedHandle: it.quotedHandle || '',
                 quotedText: it.quotedText || '',
+                parentHandle: it.parentHandle || '',
+                parentText: it.parentText || '',
+                isReply: Boolean(it.isReply),
+                isVerified: Boolean(it.isVerified),
+                slopProb: typeof r.slopProb === 'number' && Number.isFinite(r.slopProb) ? r.slopProb : null,
                 scope: r.scope || 'TWEET',
                 source: r.source || 'ai_model',
                 reason: r.reason || '',
@@ -739,11 +757,20 @@ if (typeof importScripts === 'function') {
       text = '',
       quotedHandle = '',
       quotedText = '',
+      parentHandle = '',
+      parentText = '',
+      isReply = false,
+      isVerified = false,
+      origVerdict = '',
+      origSlopProb = null,
+      origSource = '',
     }) {
       await hydrateSessionCaches();
       const norm = normalizeHandle(handle);
       const isAccountScope = scope === 'account';
       const now = new Date().toISOString();
+      const cachedVerdict = tweetId ? readVerdictCache(tweetId) : null;
+      const orig = resolveOriginalSignalFields({ origVerdict, origSlopProb, origSource }, cachedVerdict);
 
       const localOutcome = await withStorageLock(async () => {
         const res = await getStorage([
@@ -802,6 +829,11 @@ if (typeof importScripts === 'function') {
               text,
               quotedHandle,
               quotedText,
+              parentHandle,
+              parentText,
+              isReply: Boolean(isReply),
+              isVerified: Boolean(isVerified),
+              slopProb: orig.origSlopProb,
               scope: 'ACCOUNT',
               source: 'user_block',
               reason: '手动拉黑账号',
@@ -829,6 +861,11 @@ if (typeof importScripts === 'function') {
               text,
               quotedHandle,
               quotedText,
+              parentHandle,
+              parentText,
+              isReply: Boolean(isReply),
+              isVerified: Boolean(isVerified),
+              slopProb: orig.origSlopProb,
               scope: 'TWEET',
               source: 'user_block',
               reason: '手动屏蔽单条',
@@ -861,6 +898,11 @@ if (typeof importScripts === 'function') {
         text,
         quotedHandle,
         quotedText,
+        parentHandle,
+        parentText,
+        isReply: Boolean(isReply),
+        isVerified: Boolean(isVerified),
+        ...orig,
         reason: isAccountScope ? 'USER_BLOCK_ACCOUNT' : 'USER_BLOCK_TWEET',
       });
 
@@ -933,6 +975,7 @@ if (typeof importScripts === 'function') {
       await hydrateSessionCaches();
       if (!tweetId) return { ok: false, error: 'tweetId is required' };
       const idStr = String(tweetId);
+      const cachedVerdict = readVerdictCache(idStr);
       clearVerdictCache({ tweetId: idStr });
       await persistSessionCaches();
 
@@ -948,7 +991,7 @@ if (typeof importScripts === 'function') {
         const matchedRecent = (res[STORAGE_KEYS.RECENT_INTERCEPTED] || []).find(
           (e) => e && String(e.tweetId || '') === idStr
         );
-        const snap = itemSnapshot || matchedRecent || {};
+        const snap = { ...(matchedRecent || {}), ...(itemSnapshot || {}) };
         await setStorage({
           [STORAGE_KEYS.ALLOWED_TWEETS]: addToBoundedList(res[STORAGE_KEYS.ALLOWED_TWEETS], idStr, MAX_ALLOWED_TWEETS),
           [STORAGE_KEYS.BLOCKED_TWEETS]: (res[STORAGE_KEYS.BLOCKED_TWEETS] || []).map(String).filter((id) => id !== idStr),
@@ -956,16 +999,32 @@ if (typeof importScripts === 'function') {
             (e) => !(e && String(e.tweetId || '') === idStr)
           ),
         });
-        return { settings, snap, stats: buildDefaultStats(res[STORAGE_KEYS.STATS]) };
+        return {
+          settings,
+          snap,
+          hasMatchedRecent: Boolean(matchedRecent),
+          stats: buildDefaultStats(res[STORAGE_KEYS.STATS]),
+        };
       });
 
+      const orig = resolveOriginalSignalFields(
+        outcome.snap,
+        cachedVerdict,
+        outcome.snap?.source || outcome.hasMatchedRecent ? 'SLOP' : ''
+      );
       await sendFlywheelSignal(outcome.settings, {
         type: 'APPEAL_TWEET',
         handle: normalizeHandle(outcome.snap?.matchedHandle || outcome.snap?.handle || ''),
         tweetId: idStr,
         displayName: outcome.snap?.displayName || '',
         text: outcome.snap?.text || '',
+        quotedHandle: normalizeHandle(outcome.snap?.quotedHandle || ''),
         quotedText: outcome.snap?.quotedText || '',
+        parentHandle: normalizeHandle(outcome.snap?.parentHandle || ''),
+        parentText: outcome.snap?.parentText || '',
+        isReply: Boolean(outcome.snap?.isReply),
+        isVerified: Boolean(outcome.snap?.isVerified),
+        ...orig,
         reason: 'USER_ALLOW_TWEET',
       });
 
@@ -1005,6 +1064,7 @@ if (typeof importScripts === 'function') {
       const norm = normalizeHandle(handle);
       if (!norm) return { ok: false };
 
+      const cachedVerdict = tweetId ? readVerdictCache(tweetId) : null;
       clearVerdictCache({ handle: norm, tweetId });
       await persistSessionCaches();
 
@@ -1025,10 +1085,10 @@ if (typeof importScripts === 'function') {
         const prevRecent = Array.isArray(storage[STORAGE_KEYS.RECENT_INTERCEPTED])
           ? storage[STORAGE_KEYS.RECENT_INTERCEPTED]
           : [];
-        const matchedRecent = prevRecent.find(
-          (e) => e && (e.matchedHandle === norm || e.handle === norm)
-        );
-        const snap = itemSnapshot || matchedRecent || {};
+        const matchedRecent =
+          (tweetIdStr && prevRecent.find((e) => e && String(e.tweetId || '') === tweetIdStr)) ||
+          prevRecent.find((e) => e && (e.matchedHandle === norm || e.handle === norm));
+        const snap = { ...(matchedRecent || {}), ...(itemSnapshot || {}) };
 
         const matchesRemoved = (e) =>
           Boolean(
@@ -1052,6 +1112,7 @@ if (typeof importScripts === 'function') {
         return {
           settings,
           snap,
+          hasMatchedRecent: Boolean(matchedRecent),
           wasLocalBlacklisted: prevLocal.includes(norm),
           wasRemoteBlacklisted: prevRemote.includes(norm),
           removedEntries,
@@ -1059,13 +1120,24 @@ if (typeof importScripts === 'function') {
         };
       });
 
+      const orig = resolveOriginalSignalFields(
+        outcome.snap,
+        cachedVerdict,
+        outcome.snap?.source || outcome.hasMatchedRecent ? 'SLOP' : ''
+      );
       await sendFlywheelSignal(outcome.settings, {
         type: 'APPEAL_ACCOUNT',
         handle: norm,
         tweetId: tweetId ? String(tweetId) : '',
         displayName: outcome.snap?.displayName || '',
         text: outcome.snap?.text || '',
+        quotedHandle: normalizeHandle(outcome.snap?.quotedHandle || ''),
         quotedText: outcome.snap?.quotedText || '',
+        parentHandle: normalizeHandle(outcome.snap?.parentHandle || ''),
+        parentText: outcome.snap?.parentText || '',
+        isReply: Boolean(outcome.snap?.isReply),
+        isVerified: Boolean(outcome.snap?.isVerified),
+        ...orig,
         reason: 'USER_NOT_SLOP',
       });
 

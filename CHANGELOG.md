@@ -1,5 +1,15 @@
 # 更新日志
 
+## [0.2.2] - 2026-11-23
+
+### 模型与评测升级
+- 升级线上共享服务与 BYOK 直连模式的双语判别提示词，并将拦截阈值校准为回复 `0.50` / 原推 `0.55`，显著提升 AI 模板回复与软广引流召回，大幅降低真实短评误杀。
+- 升级 [server/src/eval.js](server/src/eval.js)，支持离线标注集回放与按日期切分的样本外（Out-of-Sample）验证，并在回放中完整传入父帖、回复、蓝 V 等上下文特征。
+
+### 飞轮数据闭环与扩展修复
+- 为 `flywheel_samples` 与 `post_decisions` 补全 `parent_handle`、`parent_text`、`quoted_handle`、`is_reply`、`is_verified` 以及原始模型打分快照（`orig_verdict` / `orig_slop_prob` / `orig_source`），用户点放行申诉后不再覆盖原模型打分，同时放宽 `decision_logs` 摘要长度至 `300 / 200` 字符。
+- 修复 X 帖子详情页「更多发现 / Discover more」推荐流被误标记为回复并错挂父帖上下文的 DOM 串线问题。
+
 ## [0.2.1] - 2026-11-21
 
 ### 性能与数据库优化

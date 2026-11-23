@@ -621,3 +621,144 @@ test('MARK_STAGE_SEEN persists lastSeenStageId monotonically, rejects invalid ID
   assert.equal(state.stats.lastSeenStageId, 'astral');
   assert.equal(state.stats.filteredCount, 640);
 });
+
+test('CLASSIFY_BATCH persists context & slopProb into recentIntercepted and signals forward context + original AI snapshot', async () => {
+  const signalPayloads = [];
+  const chromeApi = createMockChrome({
+    [STORAGE_KEYS.SETTINGS]: {
+      enabled: true,
+      flywheelEnabled: true,
+      flywheelUrl: 'https://fw.example.com',
+      aiScanScope: 'replies',
+    },
+  });
+
+  const mockFetch = async (url, init) => {
+    if (url.startsWith('https://fw.example.com/api/v1/blacklist')) {
+      return { ok: true, status: 200, async json() { return { version: 1, accounts: [], removed: [] }; } };
+    }
+    if (url === 'https://fw.example.com/api/v1/classify/batch') {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            results: [
+              {
+                tweetId: '700001',
+                handle: 'reply_a',
+                matchedHandle: 'reply_a',
+                verdict: 'SLOP',
+                scope: 'TWEET',
+                slopProb: 0.77,
+                source: 'ai_model',
+                reason: 'test',
+              },
+              {
+                tweetId: '700002',
+                handle: 'reply_b',
+                matchedHandle: 'reply_b',
+                verdict: 'SLOP',
+                scope: 'TWEET',
+                slopProb: 0.64,
+                source: 'ai_model',
+                reason: 'test',
+              },
+            ],
+          };
+        },
+      };
+    }
+    if (url === 'https://fw.example.com/api/v1/signal') {
+      signalPayloads.push(JSON.parse(init.body));
+      return { ok: true, status: 200, async json() { return { ok: true }; } };
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  };
+
+  const ctrl = createBackgroundController({ chromeApi, fetchImpl: mockFetch });
+  await ctrl.handleMessage({
+    type: 'CLASSIFY_BATCH',
+    items: [
+      {
+        tweetId: '700001',
+        handle: 'reply_a',
+        parentHandle: 'focal_op',
+        parentText: 'Original thread about database internals',
+        quotedHandle: 'quoted_acc',
+        quotedText: 'Quoted content',
+        isReply: true,
+        isVerified: true,
+        text: 'False positive candidate reply',
+      },
+      {
+        tweetId: '700002',
+        handle: 'reply_b',
+        parentHandle: 'focal_op',
+        parentText: 'Original thread about database internals',
+        isReply: true,
+        isVerified: false,
+        text: 'Another reply from reply_b',
+      },
+    ],
+  });
+
+  const state = await ctrl.handleMessage({ type: 'GET_STATE' });
+  const recA = state.recentIntercepted.find((e) => e.tweetId === '700001');
+  assert.equal(recA.parentHandle, 'focal_op');
+  assert.equal(recA.parentText, 'Original thread about database internals');
+  assert.equal(recA.quotedHandle, 'quoted_acc');
+  assert.equal(recA.isReply, true);
+  assert.equal(recA.isVerified, true);
+  assert.equal(recA.slopProb, 0.77);
+
+  // ALLOW_TWEET without explicit itemSnapshot pulls context & slopProb from recentIntercepted / verdictCache
+  await ctrl.handleMessage({ type: 'ALLOW_TWEET', payload: { tweetId: '700001' } });
+  const sigAllow = signalPayloads[0];
+  assert.equal(sigAllow.type, 'APPEAL_TWEET');
+  assert.equal(sigAllow.parentHandle, 'focal_op');
+  assert.equal(sigAllow.parentText, 'Original thread about database internals');
+  assert.equal(sigAllow.quotedHandle, 'quoted_acc');
+  assert.equal(sigAllow.isReply, true);
+  assert.equal(sigAllow.isVerified, true);
+  assert.equal(sigAllow.origVerdict, 'SLOP');
+  assert.equal(sigAllow.origSlopProb, 0.77);
+  assert.equal(sigAllow.origSource, 'ai_model');
+
+  // WHITELIST_ACCOUNT forwards context & slopProb from recentIntercepted
+  await ctrl.handleMessage({ type: 'WHITELIST_ACCOUNT', payload: { handle: 'reply_b', tweetId: '700002' } });
+  const sigWl = signalPayloads[1];
+  assert.equal(sigWl.type, 'APPEAL_ACCOUNT');
+  assert.equal(sigWl.parentHandle, 'focal_op');
+  assert.equal(sigWl.isReply, true);
+  assert.equal(sigWl.isVerified, false);
+  assert.equal(sigWl.origVerdict, 'SLOP');
+  assert.equal(sigWl.origSlopProb, 0.64);
+  assert.equal(sigWl.origSource, 'ai_model');
+
+  // REPORT_SLOP forwards caller-provided context & orig snapshot
+  await ctrl.handleMessage({
+    type: 'REPORT_SLOP',
+    payload: {
+      tweetId: '700003',
+      handle: 'missed_slop',
+      scope: 'tweet',
+      text: '最认同的一点：本质上是护城河',
+      parentHandle: 'focal_op',
+      parentText: 'Original thread about database internals',
+      isReply: true,
+      isVerified: true,
+      origVerdict: 'ALLOW',
+      origSlopProb: 0.31,
+      origSource: 'ai_model',
+    },
+  });
+  const sigReport = signalPayloads[2];
+  assert.equal(sigReport.type, 'BLOCK_TWEET');
+  assert.equal(sigReport.parentHandle, 'focal_op');
+  assert.equal(sigReport.isReply, true);
+  assert.equal(sigReport.isVerified, true);
+  assert.equal(sigReport.origVerdict, 'ALLOW');
+  assert.equal(sigReport.origSlopProb, 0.31);
+  assert.equal(sigReport.origSource, 'ai_model');
+});

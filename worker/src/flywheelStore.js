@@ -6,6 +6,7 @@ const SCHEMA_STATEMENTS = [
     handle TEXT NOT NULL DEFAULT '',
     verdict TEXT NOT NULL,
     confidence REAL NOT NULL DEFAULT 0,
+    slop_prob REAL,
     source TEXT NOT NULL DEFAULT 'ai_model',
     reason TEXT NOT NULL DEFAULT '',
     report_count INTEGER NOT NULL DEFAULT 0,
@@ -56,6 +57,14 @@ const SCHEMA_STATEMENTS = [
     display_name TEXT NOT NULL DEFAULT '',
     text TEXT NOT NULL DEFAULT '',
     quoted_text TEXT NOT NULL DEFAULT '',
+    quoted_handle TEXT NOT NULL DEFAULT '',
+    parent_handle TEXT NOT NULL DEFAULT '',
+    parent_text TEXT NOT NULL DEFAULT '',
+    is_reply INTEGER NOT NULL DEFAULT 0,
+    is_verified INTEGER NOT NULL DEFAULT 0,
+    orig_verdict TEXT NOT NULL DEFAULT '',
+    orig_slop_prob REAL,
+    orig_source TEXT NOT NULL DEFAULT '',
     reason TEXT NOT NULL DEFAULT '',
     client_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -196,6 +205,31 @@ function parseIntOption(val, fallback, min = 0) {
   return Math.max(min, Number.isFinite(num) ? Math.floor(num) : fallback);
 }
 
+function parseNullableProb(val) {
+  if (val === null || val === undefined || val === '') return null;
+  const num = Number(val);
+  if (!Number.isFinite(num)) return null;
+  return Number(Math.max(0, Math.min(1, num)).toFixed(3));
+}
+
+function normalizeOrigVerdict(val) {
+  const upper = String(val || '').trim().toUpperCase();
+  return upper === 'SLOP' || upper === 'ALLOW' ? upper : '';
+}
+
+function resolvePostSlopProb(row) {
+  if (!row) return null;
+  const explicit = parseNullableProb(row.slop_prob ?? row.slopProb);
+  if (explicit !== null) return explicit;
+  if (row.source === 'ai_model') {
+    const conf = parseNullableProb(row.confidence);
+    if (conf !== null) {
+      return row.verdict === 'SLOP' ? conf : Number((1 - conf).toFixed(3));
+    }
+  }
+  return null;
+}
+
 export class FlywheelStore {
   constructor(db, options = {}) {
     if (!db) throw new Error('D1/SQLite db instance is required');
@@ -216,6 +250,40 @@ export class FlywheelStore {
 
   _invalidateStatsCache() {
     this._statsCache = null;
+  }
+
+  async _ensureColumnMigrations() {
+    const [postColsRes, sampleColsRes] = await Promise.all([
+      this.db.prepare('PRAGMA table_info(post_decisions)').all(),
+      this.db.prepare('PRAGMA table_info(flywheel_samples)').all(),
+    ]);
+    const postCols = new Set((postColsRes?.results || []).map((r) => r.name));
+    const sampleCols = new Set((sampleColsRes?.results || []).map((r) => r.name));
+
+    const stmts = [];
+    if (postCols.size > 0 && !postCols.has('slop_prob')) {
+      stmts.push(this.db.prepare('ALTER TABLE post_decisions ADD COLUMN slop_prob REAL'));
+    }
+    const sampleMigrations = [
+      ['quoted_handle', "TEXT NOT NULL DEFAULT ''"],
+      ['parent_handle', "TEXT NOT NULL DEFAULT ''"],
+      ['parent_text', "TEXT NOT NULL DEFAULT ''"],
+      ['is_reply', 'INTEGER NOT NULL DEFAULT 0'],
+      ['is_verified', 'INTEGER NOT NULL DEFAULT 0'],
+      ['orig_verdict', "TEXT NOT NULL DEFAULT ''"],
+      ['orig_slop_prob', 'REAL'],
+      ['orig_source', "TEXT NOT NULL DEFAULT ''"],
+    ];
+    if (sampleCols.size > 0) {
+      for (const [col, def] of sampleMigrations) {
+        if (!sampleCols.has(col)) {
+          stmts.push(this.db.prepare(`ALTER TABLE flywheel_samples ADD COLUMN ${col} ${def}`));
+        }
+      }
+    }
+    if (stmts.length > 0) {
+      await this.db.batch(stmts);
+    }
   }
 
   async _ensureCountersRow() {
@@ -243,6 +311,7 @@ export class FlywheelStore {
     if (!this._schemaPromise) {
       this._schemaPromise = this.db
         .batch(SCHEMA_STATEMENTS.map((sql) => this.db.prepare(sql)))
+        .then(() => this._ensureColumnMigrations())
         .then(() => this._ensureCountersRow())
         .catch((err) => {
           this._schemaPromise = null;
@@ -336,15 +405,46 @@ export class FlywheelStore {
     this._invalidateStatsCache();
   }
 
-  async _insertSample({ signalType, handle = '', tweetId = '', displayName = '', text = '', quotedText = '', reason = '', clientId, now }) {
+  async _insertSample({
+    signalType,
+    handle = '',
+    tweetId = '',
+    displayName = '',
+    text = '',
+    quotedHandle = '',
+    quotedText = '',
+    parentHandle = '',
+    parentText = '',
+    isReply = false,
+    isVerified = false,
+    origVerdict = '',
+    origSlopProb = null,
+    origSource = '',
+    reason = '',
+    clientId,
+    now,
+  }) {
     await this.db
       .prepare(
-        `INSERT INTO flywheel_samples (signal_type, handle, tweet_id, display_name, text, quoted_text, reason, client_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO flywheel_samples (
+           signal_type, handle, tweet_id, display_name, text,
+           quoted_handle, quoted_text, parent_handle, parent_text,
+           is_reply, is_verified, orig_verdict, orig_slop_prob, orig_source,
+           reason, client_id, created_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(client_id, signal_type, handle, tweet_id) DO UPDATE SET
-           display_name = excluded.display_name,
-           text = excluded.text,
-           quoted_text = excluded.quoted_text,
+           display_name = COALESCE(NULLIF(excluded.display_name, ''), flywheel_samples.display_name),
+           text = COALESCE(NULLIF(excluded.text, ''), flywheel_samples.text),
+           quoted_handle = COALESCE(NULLIF(excluded.quoted_handle, ''), flywheel_samples.quoted_handle),
+           quoted_text = COALESCE(NULLIF(excluded.quoted_text, ''), flywheel_samples.quoted_text),
+           parent_handle = COALESCE(NULLIF(excluded.parent_handle, ''), flywheel_samples.parent_handle),
+           parent_text = COALESCE(NULLIF(excluded.parent_text, ''), flywheel_samples.parent_text),
+           is_reply = MAX(flywheel_samples.is_reply, excluded.is_reply),
+           is_verified = MAX(flywheel_samples.is_verified, excluded.is_verified),
+           orig_verdict = COALESCE(NULLIF(flywheel_samples.orig_verdict, ''), excluded.orig_verdict),
+           orig_slop_prob = COALESCE(flywheel_samples.orig_slop_prob, excluded.orig_slop_prob),
+           orig_source = COALESCE(NULLIF(flywheel_samples.orig_source, ''), excluded.orig_source),
            reason = excluded.reason,
            created_at = excluded.created_at`
       )
@@ -354,7 +454,15 @@ export class FlywheelStore {
         tweetId ? String(tweetId).slice(0, 128) : '',
         sanitizeText(displayName, 120),
         sanitizeText(text, 800),
+        normalizeHandle(quotedHandle),
         sanitizeText(quotedText, 400),
+        normalizeHandle(parentHandle),
+        sanitizeText(parentText, 300),
+        isReply ? 1 : 0,
+        isVerified ? 1 : 0,
+        normalizeOrigVerdict(origVerdict),
+        parseNullableProb(origSlopProb),
+        sanitizeText(origSource, 40),
         sanitizeText(reason, 200),
         clientId,
         now
@@ -480,7 +588,7 @@ export class FlywheelStore {
     const placeholders = clean.map(() => '?').join(', ');
     const res = await this.db
       .prepare(
-        `SELECT tweet_id, handle, verdict, confidence, source, reason, report_count, appeal_count, updated_at
+        `SELECT tweet_id, handle, verdict, confidence, slop_prob, source, reason, report_count, appeal_count, updated_at
          FROM post_decisions
          WHERE tweet_id IN (${placeholders})`
       )
@@ -538,6 +646,7 @@ export class FlywheelStore {
 
       const verdict = String(entry.verdict || '').toUpperCase() === 'SLOP' ? 'SLOP' : 'ALLOW';
       const confidence = Number.isFinite(Number(entry.confidence)) ? Number(entry.confidence) : 0;
+      const slopProb = parseNullableProb(entry.slopProb);
       const source = sanitizeText(entry.source || 'ai_model', 40) || 'ai_model';
       const reason = sanitizeText(entry.reason || '', 200);
       const reportCount = parseIntOption(entry.reportCount, 0, 0);
@@ -547,12 +656,13 @@ export class FlywheelStore {
       stmts.push(
         this.db
           .prepare(
-            `INSERT INTO post_decisions (tweet_id, handle, verdict, confidence, source, reason, report_count, appeal_count, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO post_decisions (tweet_id, handle, verdict, confidence, slop_prob, source, reason, report_count, appeal_count, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(tweet_id) DO UPDATE SET
                handle = COALESCE(NULLIF(excluded.handle, ''), post_decisions.handle),
                verdict = excluded.verdict,
                confidence = excluded.confidence,
+               slop_prob = COALESCE(post_decisions.slop_prob, excluded.slop_prob),
                source = excluded.source,
                reason = excluded.reason,
                report_count = MAX(post_decisions.report_count, excluded.report_count),
@@ -560,7 +670,7 @@ export class FlywheelStore {
                updated_at = excluded.updated_at
              ${conflictGuard}`
           )
-          .bind(tweetId, handle, verdict, confidence, source, reason, reportCount, appealCount, now, now)
+          .bind(tweetId, handle, verdict, confidence, slopProb, source, reason, reportCount, appealCount, now, now)
       );
 
       if (verdict === 'SLOP' && handle) {
@@ -625,8 +735,8 @@ export class FlywheelStore {
             String(entry.verdict || '').toUpperCase() === 'SLOP' ? 'SLOP' : 'ALLOW',
             Number.isFinite(Number(entry.slopProb)) ? Number(entry.slopProb) : 0,
             Number.isFinite(Number(entry.confidence)) ? Number(entry.confidence) : 0,
-            sanitizeText(entry.text || entry.quotedText || '', 180),
-            sanitizeText(entry.parentText || '', 100),
+            sanitizeText(entry.text || entry.quotedText || '', 300),
+            sanitizeText(entry.parentText || '', 200),
             now
           )
       );
@@ -778,10 +888,40 @@ export class FlywheelStore {
     const text = sanitizeText(payload.text, 800);
     const quotedHandle = normalizeHandle(payload.quotedHandle || '');
     const quotedText = sanitizeText(payload.quotedText, 400);
+    const parentHandle = normalizeHandle(payload.parentHandle || '');
+    const parentText = sanitizeText(payload.parentText, 300);
+    const isReply = Boolean(payload.isReply);
+    const isVerified = Boolean(payload.isVerified);
+    const clientOrigVerdict = normalizeOrigVerdict(payload.origVerdict);
+    const clientOrigSlopProb = parseNullableProb(payload.origSlopProb);
+    const clientOrigSource = sanitizeText(payload.origSource, 40);
     const reason = sanitizeText(payload.reason, 200) || 'USER_REPORT';
     const now = new Date().toISOString();
     const today = now.slice(0, 10);
     const cacheableTweet = isCacheableTweetId(tweetId, handle);
+
+    const loadExistingPost = async () =>
+      cacheableTweet
+        ? this.db
+            .prepare('SELECT verdict, confidence, slop_prob, source FROM post_decisions WHERE tweet_id = ?')
+            .bind(tweetId)
+            .first()
+        : null;
+
+    const resolveOrigSnapshot = (existingPost) => {
+      if (existingPost && existingPost.source === 'ai_model') {
+        return {
+          origVerdict: normalizeOrigVerdict(existingPost.verdict),
+          origSlopProb: resolvePostSlopProb(existingPost),
+          origSource: 'ai_model',
+        };
+      }
+      return {
+        origVerdict: clientOrigVerdict || normalizeOrigVerdict(existingPost?.verdict),
+        origSlopProb: clientOrigSlopProb ?? resolvePostSlopProb(existingPost),
+        origSource: clientOrigSource || sanitizeText(existingPost?.source || '', 40),
+      };
+    };
 
     const runTask = (fn) => {
       const p = Promise.resolve()
@@ -798,13 +938,21 @@ export class FlywheelStore {
       if (!tweetId && !text) {
         return { ok: false, error: 'tweetId or text is required' };
       }
+      const existingPost = await loadExistingPost();
+      const origSnapshot = resolveOrigSnapshot(existingPost);
       await this._insertSample({
         signalType: 'FN_TWEET',
         handle,
         tweetId,
         displayName,
         text,
+        quotedHandle,
         quotedText,
+        parentHandle,
+        parentText,
+        isReply,
+        isVerified,
+        ...origSnapshot,
         reason,
         clientId,
         now,
@@ -826,10 +974,6 @@ export class FlywheelStore {
         .run();
 
       const { reportCount, appealCount } = await this._getPostVoteCounts(tweetId);
-      const existingPost = await this.db
-        .prepare('SELECT verdict, source FROM post_decisions WHERE tweet_id = ?')
-        .bind(tweetId)
-        .first();
       let postVerdict = existingPost?.verdict || 'PENDING';
       let escalated = false;
 
@@ -860,7 +1004,7 @@ export class FlywheelStore {
           const quota = await this.consumeAiQuota({ ipHash, itemCount: 1 });
           if (!quota.allowed) return;
           const [aiRes] = await aiVerifier.classifyTweetsBatch([
-            { tweetId, handle, displayName, text, quotedHandle, quotedText },
+            { tweetId, handle, displayName, text, quotedHandle, quotedText, parentHandle, parentText, isReply, isVerified },
           ]);
           if (aiRes && aiRes.verdict === 'SLOP') {
             const { escalatedHandles } = await this.savePostDecisions([
@@ -869,6 +1013,7 @@ export class FlywheelStore {
                 handle: aiRes.matchedHandle || handle,
                 verdict: 'SLOP',
                 confidence: aiRes.confidence || 0.8,
+                slopProb: aiRes.slopProb,
                 source: 'user_verified',
                 reason: aiRes.reason || reason,
                 reportCount,
@@ -898,13 +1043,21 @@ export class FlywheelStore {
       if (!tweetId && !text) {
         return { ok: false, error: 'tweetId or text is required' };
       }
+      const existingPost = await loadExistingPost();
+      const origSnapshot = resolveOrigSnapshot(existingPost);
       await this._insertSample({
         signalType: 'FP_TWEET',
         handle,
         tweetId,
         displayName,
         text,
+        quotedHandle,
         quotedText,
+        parentHandle,
+        parentText,
+        isReply,
+        isVerified,
+        ...origSnapshot,
         reason,
         clientId,
         now,
@@ -931,18 +1084,19 @@ export class FlywheelStore {
       if (appealCount >= 1 && reportCount - 2 * appealCount < this.postReportQuorum) {
         await this.db
           .prepare(
-            `INSERT INTO post_decisions (tweet_id, handle, verdict, confidence, source, reason, report_count, appeal_count, created_at, updated_at)
-             VALUES (?, ?, 'ALLOW', 1, 'appealed', 'Appealed by user', ?, ?, ?, ?)
+            `INSERT INTO post_decisions (tweet_id, handle, verdict, confidence, slop_prob, source, reason, report_count, appeal_count, created_at, updated_at)
+             VALUES (?, ?, 'ALLOW', 1, ?, 'appealed', 'Appealed by user', ?, ?, ?, ?)
              ON CONFLICT(tweet_id) DO UPDATE SET
                verdict = 'ALLOW',
                confidence = 1,
+               slop_prob = COALESCE(post_decisions.slop_prob, excluded.slop_prob),
                source = 'appealed',
                reason = 'Appealed by user',
                report_count = excluded.report_count,
                appeal_count = excluded.appeal_count,
                updated_at = excluded.updated_at`
           )
-          .bind(tweetId, handle, reportCount, appealCount, now, now)
+          .bind(tweetId, handle, origSnapshot.origSlopProb, reportCount, appealCount, now, now)
           .run();
         flippedToAllow = true;
         this._invalidateStatsCache();
@@ -974,13 +1128,21 @@ export class FlywheelStore {
         .bind(handle, clientId, text || quotedText, now, now)
         .run();
 
+      const existingPost = await loadExistingPost();
+      const origSnapshot = resolveOrigSnapshot(existingPost);
       await this._insertSample({
         signalType: 'FN_ACCOUNT',
         handle,
         tweetId,
         displayName,
         text,
+        quotedHandle,
         quotedText,
+        parentHandle,
+        parentText,
+        isReply,
+        isVerified,
+        ...origSnapshot,
         reason,
         clientId,
         now,
@@ -1168,13 +1330,21 @@ export class FlywheelStore {
         .bind(handle, clientId, text || quotedText, now, now)
         .run();
 
+      const existingPost = await loadExistingPost();
+      const origSnapshot = resolveOrigSnapshot(existingPost);
       await this._insertSample({
         signalType: 'FP_ACCOUNT',
         handle,
         tweetId,
         displayName,
         text,
+        quotedHandle,
         quotedText,
+        parentHandle,
+        parentText,
+        isReply,
+        isVerified,
+        ...origSnapshot,
         reason,
         clientId,
         now,

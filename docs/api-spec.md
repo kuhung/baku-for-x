@@ -56,8 +56,8 @@ Query parameters (optional):
 Evaluates up to 25 items per request in order:
 1. Client `whitelist` -> `ALLOW (source: "whitelist")`
 2. Bulk L2 `blacklist` check (outer, retweeter, quoted handles) -> `SLOP (scope: "ACCOUNT", source: "blacklist")`
-3. Bulk L1 `post_decisions` cache lookup -> cached `SLOP` / `ALLOW (scope: "TWEET", source: "post_cache")`
-4. Unseen posts -> rate-limit & daily budget check -> `AiVerifier.classifyTweetsBatch` (single Gemini `gemini-decision-1` request for all pending items, zero output tokens) -> persisted asynchronously into `post_decisions`.
+3. Bulk L1 `post_decisions` cache lookup -> cached `SLOP` / `ALLOW (scope: "TWEET", source: "post_cache", slopProb)`
+4. Unseen posts -> rate-limit & daily budget check -> `AiVerifier.classifyTweetsBatch` (single Gemini `gemini-decision-1` request for all pending items, zero output tokens) -> persisted asynchronously into `post_decisions` (preserving `slop_prob`).
 
 When an account accumulates `ACCOUNT_ESCALATION_THRESHOLD` (default `3`) distinct `SLOP` posts in `post_decisions` (net of appeals), it automatically escalates into the shared L2 `blacklist` (`source: "post_escalation"`).
 
@@ -68,7 +68,7 @@ If `ALLOW_PUBLIC_CLASSIFY=false` and `API_AUTH_TOKEN` is unmatched, returns `403
 ## 4. Silent Flywheel Signals (L1 & L2)
 
 ### `POST /api/v1/signal`
-Records explicit user feedback signals emitted silently by the extension. Expensive AI verification runs inside `ctx.waitUntil` on Cloudflare Workers so responses return immediately.
+Records explicit user feedback signals emitted silently by the extension, persisting context (`quotedHandle`, `parentHandle`, `parentText`, `isReply`, `isVerified`) and any prior AI snapshot (`origVerdict`, `origSlopProb`, `origSource`) into `flywheel_samples` without overwriting the cached `slop_prob` in `post_decisions`. Expensive AI verification runs inside `ctx.waitUntil` on Cloudflare Workers so responses return immediately.
 
 **Supported `type` values:**
 - `BLOCK_TWEET` (L1): stores `FN_TWEET` sample and `(tweetId, clientId)` `REPORT` vote. Marks `post_decisions` as `SLOP` via quorum (`POST_REPORT_QUORUM`) or single-shot Gemini Decision verification, and checks L1 -> L2 escalation.

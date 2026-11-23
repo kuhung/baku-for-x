@@ -400,10 +400,19 @@
 
   async function triggerAllowSingleTweet(articleEl, item) {
     if (!item?.tweetId) return;
+    const prevResult = processedArticles.get(articleEl)?.result || null;
+    const snapshot = prevResult
+      ? {
+          ...item,
+          origVerdict: prevResult.verdict || '',
+          origSlopProb: prevResult.slopProb ?? null,
+          origSource: prevResult.source || '',
+        }
+      : item;
     restoreSingleArticle(articleEl, item, 'allowed_tweet');
     const actionPromise = sendMessage({
       type: 'ALLOW_TWEET',
-      payload: { tweetId: item.tweetId, itemSnapshot: item },
+      payload: { tweetId: item.tweetId, itemSnapshot: snapshot },
     });
     showToast('已放行此条推文', [
       {
@@ -472,6 +481,7 @@
     });
     showToast('已吞掉这条', toastActions, { mascot: true });
 
+    const prevResult = processedArticles.get(articleEl)?.result || null;
     const reportPromise = sendMessage({
       type: 'REPORT_SLOP',
       payload: {
@@ -482,6 +492,13 @@
         text: latest.text,
         quotedHandle: latest.quotedHandle || '',
         quotedText: latest.quotedText || '',
+        parentHandle: latest.parentHandle || '',
+        parentText: latest.parentText || '',
+        isReply: Boolean(latest.isReply),
+        isVerified: Boolean(latest.isVerified),
+        origVerdict: prevResult?.verdict || '',
+        origSlopProb: prevResult?.slopProb ?? null,
+        origSource: prevResult?.source || '',
       },
     });
 
@@ -573,9 +590,17 @@
       }
     };
 
+    let prevResult = null;
     if (curItem && itemMatchesHandle(curItem, normTarget)) track(curItem);
     document.querySelectorAll(ARTICLE_SELECTOR).forEach((node) => {
       const meta = processedArticles.get(node);
+      if (
+        !prevResult &&
+        curItem &&
+        (meta?.item === curItem || (curItem.tweetId && meta?.item?.tweetId === curItem.tweetId))
+      ) {
+        prevResult = meta.result || null;
+      }
       const elItem = meta?.item || extractTweetData(node);
       if (elItem && itemMatchesHandle(elItem, normTarget)) {
         track(elItem);
@@ -607,6 +632,13 @@
         text: isPrimary && curItem ? curItem.text : '',
         quotedHandle: curItem ? curItem.quotedHandle : '',
         quotedText: curItem ? curItem.quotedText : '',
+        parentHandle: isPrimary && curItem ? curItem.parentHandle || '' : '',
+        parentText: isPrimary && curItem ? curItem.parentText || '' : '',
+        isReply: Boolean(isPrimary && curItem && curItem.isReply),
+        isVerified: Boolean(isPrimary && curItem && curItem.isVerified),
+        origVerdict: isPrimary && prevResult ? prevResult.verdict || '' : '',
+        origSlopProb: isPrimary && prevResult ? prevResult.slopProb ?? null : null,
+        origSource: isPrimary && prevResult ? prevResult.source || '' : '',
       },
     });
   }
@@ -646,10 +678,18 @@
         }
         if (targetHandle) {
           const indirect = normalizeHandle(item?.handle) !== targetHandle;
+          const snapshot = item
+            ? {
+                ...item,
+                origVerdict: result?.verdict || '',
+                origSlopProb: result?.slopProb ?? null,
+                origSource: result?.source || '',
+              }
+            : null;
           opts.push({
             label: indirect ? `信任关联账号 @${targetHandle}` : `信任账号 @${targetHandle}`,
             sub: '加入白名单，不再拦截该账号',
-            onClick: () => triggerWhitelistRecovery(targetHandle, item?.tweetId || null, item),
+            onClick: () => triggerWhitelistRecovery(targetHandle, item?.tweetId || null, snapshot),
           });
         }
         if (opts.length === 1) opts[0].onClick();
