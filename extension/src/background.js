@@ -503,6 +503,65 @@ if (typeof importScripts === 'function') {
       }
     }
 
+    function applySlopInterceptionStats(latest, pairs = []) {
+      const countedList = Array.isArray(latest[STORAGE_KEYS.COUNTED_TWEETS])
+        ? latest[STORAGE_KEYS.COUNTED_TWEETS].map(String)
+        : [];
+      const countedSet = new Set(countedList);
+      const stats = buildDefaultStats(latest[STORAGE_KEYS.STATS]);
+      let newlyFiltered = 0;
+      const recentToAdd = [];
+      const now = new Date().toISOString();
+
+      for (const pair of pairs) {
+        const r = pair?.result;
+        const it = pair?.item || {};
+        const tweetId = r?.tweetId || it?.tweetId;
+        if (!r || r.verdict !== 'SLOP' || !tweetId) continue;
+
+        const idStr = String(tweetId);
+        if (countedSet.has(idStr)) continue;
+        countedSet.add(idStr);
+        countedList.push(idStr);
+        newlyFiltered += 1;
+
+        const owner = normalizeHandle(r.matchedHandle || r.handle || it.handle);
+        if (owner && r.scope === 'ACCOUNT') {
+          stats.accountInterceptCounts[owner] = (stats.accountInterceptCounts[owner] || 0) + 1;
+        }
+
+        recentToAdd.push({
+          tweetId: idStr,
+          handle: r.handle || it.handle || '',
+          matchedHandle: r.matchedHandle || r.handle || it.handle || '',
+          displayName: it.displayName || '',
+          text: it.text || '',
+          quotedHandle: it.quotedHandle || '',
+          quotedText: it.quotedText || '',
+          parentHandle: it.parentHandle || '',
+          parentText: it.parentText || '',
+          isReply: Boolean(it.isReply),
+          isVerified: Boolean(it.isVerified),
+          slopProb: typeof r.slopProb === 'number' && Number.isFinite(r.slopProb) ? r.slopProb : null,
+          scope: r.scope || 'TWEET',
+          source: r.source || 'ai_model',
+          reason: r.reason || '',
+          interceptedAt: now,
+        });
+      }
+
+      if (newlyFiltered > 0) {
+        stats.filteredCount += newlyFiltered;
+      }
+
+      return {
+        newlyFiltered,
+        trimmedCounted: countedList.slice(-MAX_COUNTED_IDS),
+        recentIntercepted: recordRecentIntercepted(latest[STORAGE_KEYS.RECENT_INTERCEPTED], recentToAdd),
+        stats,
+      };
+    }
+
     async function classifyBatch(items = []) {
       if (!Array.isArray(items) || items.length === 0) return { results: [] };
       await hydrateSessionCaches();
@@ -684,60 +743,15 @@ if (typeof importScripts === 'function') {
           return picked;
         });
 
-        const countedList = Array.isArray(latest[STORAGE_KEYS.COUNTED_TWEETS])
-          ? latest[STORAGE_KEYS.COUNTED_TWEETS].map(String)
-          : [];
-        const countedSet = new Set(countedList);
-        const stats = buildDefaultStats(latest[STORAGE_KEYS.STATS]);
-        let newlyFiltered = 0;
-        const recentToAdd = [];
-        const now = new Date().toISOString();
-
-        for (let i = 0; i < combined.length; i += 1) {
-          const r = combined[i];
-          const it = items[i] || {};
-          if (r.verdict === 'SLOP' && r.tweetId) {
-            const idStr = String(r.tweetId);
-            if (!countedSet.has(idStr)) {
-              countedSet.add(idStr);
-              countedList.push(idStr);
-              newlyFiltered += 1;
-              const owner = normalizeHandle(r.matchedHandle || r.handle);
-              if (owner && r.scope === 'ACCOUNT') {
-                stats.accountInterceptCounts[owner] = (stats.accountInterceptCounts[owner] || 0) + 1;
-              }
-              recentToAdd.push({
-                tweetId: idStr,
-                handle: r.handle || it.handle || '',
-                matchedHandle: r.matchedHandle || r.handle || it.handle || '',
-                displayName: it.displayName || '',
-                text: it.text || '',
-                quotedHandle: it.quotedHandle || '',
-                quotedText: it.quotedText || '',
-                parentHandle: it.parentHandle || '',
-                parentText: it.parentText || '',
-                isReply: Boolean(it.isReply),
-                isVerified: Boolean(it.isVerified),
-                slopProb: typeof r.slopProb === 'number' && Number.isFinite(r.slopProb) ? r.slopProb : null,
-                scope: r.scope || 'TWEET',
-                source: r.source || 'ai_model',
-                reason: r.reason || '',
-                interceptedAt: now,
-              });
-            }
-          }
-        }
-
-        if (newlyFiltered > 0) {
-          stats.filteredCount += newlyFiltered;
-          const trimmedCounted = countedList.slice(-MAX_COUNTED_IDS);
+        const outcome = applySlopInterceptionStats(
+          latest,
+          combined.map((result, idx) => ({ item: items[idx] || {}, result }))
+        );
+        if (outcome.newlyFiltered > 0) {
           await setStorage({
-            [STORAGE_KEYS.COUNTED_TWEETS]: trimmedCounted,
-            [STORAGE_KEYS.RECENT_INTERCEPTED]: recordRecentIntercepted(
-              latest[STORAGE_KEYS.RECENT_INTERCEPTED],
-              recentToAdd
-            ),
-            [STORAGE_KEYS.STATS]: stats,
+            [STORAGE_KEYS.COUNTED_TWEETS]: outcome.trimmedCounted,
+            [STORAGE_KEYS.RECENT_INTERCEPTED]: outcome.recentIntercepted,
+            [STORAGE_KEYS.STATS]: outcome.stats,
           });
         }
 
@@ -1471,6 +1485,67 @@ if (typeof importScripts === 'function') {
       });
     }
 
+    async function getClientSnapshot() {
+      await hydrateSessionCaches();
+      const storage = await getStorage([
+        STORAGE_KEYS.SETTINGS,
+        STORAGE_KEYS.REMOTE_BLACKLIST,
+        STORAGE_KEYS.LOCAL_BLACKLIST,
+        STORAGE_KEYS.WHITELIST,
+        STORAGE_KEYS.BLOCKED_TWEETS,
+        STORAGE_KEYS.ALLOWED_TWEETS,
+      ]);
+      const lists = readNormalizedLists(storage);
+      const now = Date.now();
+      const validVerdictEntries = [];
+      for (const [key, entry] of verdictCache.entries()) {
+        if (entry && entry.value && Number(entry.expiresAt) > now) {
+          validVerdictEntries.push([key, { expiresAt: entry.expiresAt, value: entry.value }]);
+        } else {
+          verdictCache.delete(key);
+        }
+      }
+      return {
+        settings: lists.settings,
+        effectiveFlywheelUrl: getEffectiveFlywheelUrl(lists.settings),
+        whitelist: lists.whitelist,
+        remoteBlacklist: lists.remoteBlacklist,
+        localBlacklist: lists.localBlacklist,
+        blockedTweets: Array.from(lists.blockedTweetsSet),
+        allowedTweets: Array.from(lists.allowedTweetsSet),
+        sessionAccounts: Array.from(autoSessionAccounts),
+        verdictCache: validVerdictEntries,
+      };
+    }
+
+    async function recordLocalIntercepts(entries = []) {
+      const list = Array.isArray(entries)
+        ? entries.filter((e) => e && e.result && (e.result.tweetId || e.item?.tweetId))
+        : [];
+      if (list.length === 0) return { ok: true, newlyFiltered: 0 };
+
+      return withStorageLock(async () => {
+        const latest = await getStorage([
+          STORAGE_KEYS.SETTINGS,
+          STORAGE_KEYS.COUNTED_TWEETS,
+          STORAGE_KEYS.RECENT_INTERCEPTED,
+          STORAGE_KEYS.STATS,
+        ]);
+        const settings = normalizeSettings(latest[STORAGE_KEYS.SETTINGS] || {});
+        if (!settings.enabled) return { ok: true, newlyFiltered: 0 };
+
+        const outcome = applySlopInterceptionStats(latest, list);
+        if (outcome.newlyFiltered > 0) {
+          await setStorage({
+            [STORAGE_KEYS.COUNTED_TWEETS]: outcome.trimmedCounted,
+            [STORAGE_KEYS.RECENT_INTERCEPTED]: outcome.recentIntercepted,
+            [STORAGE_KEYS.STATS]: outcome.stats,
+          });
+        }
+        return { ok: true, newlyFiltered: outcome.newlyFiltered };
+      });
+    }
+
     async function getState() {
       const storage = await getStorage([
         STORAGE_KEYS.SETTINGS,
@@ -1543,11 +1618,13 @@ if (typeof importScripts === 'function') {
 
     const MESSAGE_HANDLERS = {
       GET_STATE: () => getState(),
+      GET_CLIENT_SNAPSHOT: () => getClientSnapshot(),
       GET_DASHBOARD_DATA: () => getDashboardData(),
       UPDATE_SETTINGS: (m) => updateSettings(m.settings || {}),
       SYNC_BLACKLIST: (m) => syncBlacklist({ full: Boolean(m.full), includeHealth: Boolean(m.includeHealth) }),
       REFRESH_HEALTH: () => refreshRemoteHealth(),
       CLASSIFY_BATCH: (m) => classifyBatch(m.items || []),
+      RECORD_LOCAL_INTERCEPTS: (m) => recordLocalIntercepts(m.entries || []),
       REPORT_SLOP: (m) => reportSlop(m.payload || {}),
       UNBLOCK_ACCOUNT: (m) => unblockAccount(m.payload || {}),
       UNBLOCK_TWEET: (m) => unblockTweet(m.payload || {}),
@@ -1570,11 +1647,13 @@ if (typeof importScripts === 'function') {
 
     return {
       getState,
+      getClientSnapshot,
       getDashboardData,
       updateSettings,
       syncBlacklist,
       refreshRemoteHealth,
       classifyBatch,
+      recordLocalIntercepts,
       reportSlop,
       unblockAccount,
       unblockTweet,

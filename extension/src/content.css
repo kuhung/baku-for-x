@@ -262,17 +262,31 @@ article.antislop-peek-highlight {
   align-items: center;
   gap: var(--antislop-space-2xs);
   margin-left: var(--antislop-space-xs);
+  flex-shrink: 0;
 }
 
 .antislop-report-wrap.antislop-in-actionbar {
   margin-left: var(--antislop-space-2xs);
   align-self: center;
+  height: 20px;
+  line-height: 20px;
+  overflow: visible;
 }
 
 .antislop-report-wrap .antislop-btn {
   padding: var(--antislop-space-3xs) var(--antislop-space-xs);
   font-size: 11px;
   line-height: 1.3;
+}
+
+.antislop-report-wrap.antislop-in-actionbar .antislop-btn {
+  padding: 2px var(--antislop-space-xs);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.antislop-report-wrap.antislop-in-actionbar .antislop-report-trigger {
+  margin: -4px 0;
 }
 
 .antislop-report-trigger {
@@ -303,6 +317,7 @@ article.antislop-peek-highlight {
   width: 19px;
   height: 19px;
   display: block;
+  flex-shrink: 0;
   object-fit: contain;
   pointer-events: none;
   user-select: none;
@@ -331,6 +346,34 @@ article.antislop-peek-highlight {
 .antislop-report-trigger[aria-expanded="true"] .antislop-baku-img.is-alert {
   display: block;
   transform: translateY(-1px) scale(1.08);
+}
+
+article[data-antislop-state="collapsing"] {
+  overflow: hidden !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  transition:
+    max-height 180ms var(--antislop-ease-out),
+    opacity 140ms ease-out !important;
+}
+
+article[data-antislop-state="collapsing"].antislop-auto-collapsing {
+  max-height: 0 !important;
+  min-height: 0 !important;
+  opacity: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.antislop-mask-overlay.is-entering {
+  animation: antislop-mask-fade-in 140ms var(--antislop-ease-out);
+}
+
+@keyframes antislop-mask-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 article[data-antislop-state="eating"] {
@@ -581,11 +624,13 @@ article[data-antislop-state="eating"].antislop-eating-collapsing {
   .antislop-floating-menu button,
   .antislop-toast-btn,
   article[data-antislop-state="eating"] > *:not(.antislop-eat-stage),
-  article[data-antislop-state="eating"].antislop-eating-collapsing {
+  article[data-antislop-state="eating"].antislop-eating-collapsing,
+  article[data-antislop-state="collapsing"] {
     transition-duration: 0.01ms !important;
   }
   .antislop-eat-sprite,
-  .antislop-eat-sparkle {
+  .antislop-eat-sparkle,
+  .antislop-mask-overlay.is-entering {
     animation-duration: 0.01ms !important;
   }
 }

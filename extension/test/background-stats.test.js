@@ -762,3 +762,118 @@ test('CLASSIFY_BATCH persists context & slopProb into recentIntercepted and sign
   assert.equal(sigReport.origSlopProb, 0.31);
   assert.equal(sigReport.origSource, 'ai_model');
 });
+
+test('GET_CLIENT_SNAPSHOT and RECORD_LOCAL_INTERCEPTS return full client snapshot and deduplicate local intercept stats', async () => {
+  const chromeApi = createMockChrome({
+    [STORAGE_KEYS.SETTINGS]: { enabled: true, displayMode: 'mask' },
+    [STORAGE_KEYS.REMOTE_BLACKLIST]: ['RemoteBot', 'WhiteFriend'],
+    [STORAGE_KEYS.LOCAL_BLACKLIST]: ['LocalBot'],
+    [STORAGE_KEYS.WHITELIST]: ['WhiteFriend'],
+    [STORAGE_KEYS.BLOCKED_TWEETS]: ['t_blk_1'],
+    [STORAGE_KEYS.ALLOWED_TWEETS]: ['t_allow_1'],
+  });
+
+  const mockFetch = async (url) => {
+    if (url.startsWith('https://anti-slop-flywheel.kuhung.workers.dev/api/v1/classify/batch')) {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            results: [
+              {
+                tweetId: 't_ai_cached',
+                handle: 'sess_spammer',
+                matchedHandle: 'sess_spammer',
+                verdict: 'SLOP',
+                scope: 'ACCOUNT',
+                slopProb: 0.91,
+                source: 'ai_model',
+              },
+            ],
+          };
+        },
+      };
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  };
+
+  const ctrl = createBackgroundController({ chromeApi, fetchImpl: mockFetch });
+
+  await ctrl.handleMessage({
+    type: 'CLASSIFY_BATCH',
+    items: [
+      {
+        tweetId: 't_ai_cached',
+        handle: 'sess_spammer',
+        isReply: true,
+        text: 'Comment FREE for secret alpha prompts right now!',
+      },
+    ],
+  });
+
+  const snapshot = await ctrl.handleMessage({ type: 'GET_CLIENT_SNAPSHOT' });
+  assert.equal(snapshot.settings.displayMode, 'mask');
+  assert.deepEqual(snapshot.whitelist, ['whitefriend']);
+  assert.deepEqual(snapshot.remoteBlacklist.sort(), ['remotebot', 'whitefriend']);
+  assert.deepEqual(snapshot.localBlacklist, ['localbot']);
+  assert.deepEqual(snapshot.blockedTweets, ['t_blk_1']);
+  assert.deepEqual(snapshot.allowedTweets, ['t_allow_1']);
+  assert.deepEqual(snapshot.sessionAccounts, ['sess_spammer']);
+  assert.equal(snapshot.verdictCache.length, 1);
+  assert.equal(snapshot.verdictCache[0][0], 't_ai_cached');
+  assert.equal(snapshot.verdictCache[0][1].value.verdict, 'SLOP');
+
+  // Record two local blacklist hits + duplicate t_ai_cached (already counted via CLASSIFY_BATCH)
+  const recRes = await ctrl.handleMessage({
+    type: 'RECORD_LOCAL_INTERCEPTS',
+    entries: [
+      {
+        item: { tweetId: 't_ai_cached', handle: 'sess_spammer', text: 'dup' },
+        result: { tweetId: 't_ai_cached', handle: 'sess_spammer', matchedHandle: 'sess_spammer', verdict: 'SLOP', scope: 'ACCOUNT', source: 'session_account' },
+      },
+      {
+        item: { tweetId: 't_local_1', handle: 'remotebot', text: 'spam 1', isReply: true },
+        result: { tweetId: 't_local_1', handle: 'remotebot', matchedHandle: 'remotebot', verdict: 'SLOP', scope: 'ACCOUNT', source: 'blacklist' },
+      },
+      {
+        item: { tweetId: 't_local_2', handle: 'localbot', text: 'spam 2' },
+        result: { tweetId: 't_local_2', handle: 'localbot', matchedHandle: 'localbot', verdict: 'SLOP', scope: 'ACCOUNT', source: 'blacklist' },
+      },
+    ],
+  });
+  assert.equal(recRes.ok, true);
+  assert.equal(recRes.newlyFiltered, 2);
+
+  // Re-sending same tweetIds does not double count
+  const dupRes = await ctrl.handleMessage({
+    type: 'RECORD_LOCAL_INTERCEPTS',
+    entries: [
+      {
+        item: { tweetId: 't_local_1', handle: 'remotebot', text: 'spam 1' },
+        result: { tweetId: 't_local_1', handle: 'remotebot', matchedHandle: 'remotebot', verdict: 'SLOP', scope: 'ACCOUNT', source: 'blacklist' },
+      },
+    ],
+  });
+  assert.equal(dupRes.newlyFiltered, 0);
+
+  const state = await ctrl.handleMessage({ type: 'GET_STATE' });
+  assert.equal(state.stats.filteredCount, 3);
+  assert.equal(state.stats.accountInterceptCounts.remotebot, 1);
+  assert.equal(state.stats.accountInterceptCounts.localbot, 1);
+  assert.equal(state.stats.accountInterceptCounts.sess_spammer, 1);
+  assert.equal(state.recentIntercepted.some((e) => e.tweetId === 't_local_1'), true);
+
+  // Disabled mode skips recording
+  await ctrl.handleMessage({ type: 'UPDATE_SETTINGS', settings: { enabled: false } });
+  const disabledRes = await ctrl.handleMessage({
+    type: 'RECORD_LOCAL_INTERCEPTS',
+    entries: [
+      {
+        item: { tweetId: 't_local_3', handle: 'remotebot', text: 'spam 3' },
+        result: { tweetId: 't_local_3', handle: 'remotebot', matchedHandle: 'remotebot', verdict: 'SLOP', scope: 'ACCOUNT', source: 'blacklist' },
+      },
+    ],
+  });
+  assert.equal(disabledRes.newlyFiltered, 0);
+});
