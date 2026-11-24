@@ -3,21 +3,6 @@
   const DEFAULT_AI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/decisions';
   const DEFAULT_AI_MODEL = 'gemini-decision-1';
 
-  const DEFAULT_SETTINGS = {
-    enabled: true,
-    displayMode: 'hide', // 'hide' | 'mask'
-    badgeMode: 'corner', // 'corner' | 'count' | 'none'
-    flywheelEnabled: true,
-    flywheelUrl: '',
-    flywheelToken: '',
-    syncIntervalMinutes: 15,
-    aiEnabled: false,
-    aiApiKey: '',
-    aiBaseUrl: DEFAULT_AI_BASE_URL,
-    aiModel: DEFAULT_AI_MODEL,
-    aiScanScope: 'replies', // 'replies' | 'all'
-  };
-
   function normalizeDisplayMode(mode) {
     return mode === 'mask' ? 'mask' : 'hide';
   }
@@ -1040,14 +1025,12 @@
     DEFAULT_FLYWHEEL_URL,
     DEFAULT_AI_BASE_URL,
     DEFAULT_AI_MODEL,
-    DEFAULT_SETTINGS,
     BAKU_STAGES,
     getBakuStageIndex,
     resolveBakuStage,
     normalizeDisplayMode,
     normalizeBadgeMode,
     normalizeAiScanScope,
-    normalizeBaseUrl,
     normalizeSettings,
     resolveFlywheelUrl,
     normalizeHandle,

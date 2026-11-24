@@ -626,8 +626,7 @@
     scheduleHide(5000);
   }
 
-  function restoreSingleArticle(articleEl, item, sourceTag) {
-    if (!articleEl?.isConnected) return;
+  function restoreArticleAsAllowed(articleEl, item, sourceTag, fingerprint = null) {
     if (item?.tweetId) {
       userExpandedTweetIds.delete(item.tweetId);
       streakRevealedTweetIds.delete(item.tweetId);
@@ -636,11 +635,16 @@
     restoreArticle(articleEl);
     ensureReportButton(articleEl, item);
     processedArticles.set(articleEl, {
-      fingerprint: computeFingerprint(item),
+      fingerprint: fingerprint || computeFingerprint(item),
       item,
       result: { verdict: 'ALLOW', scope: 'TWEET', source: sourceTag },
       renderedKey: 'allow',
     });
+  }
+
+  function restoreSingleArticle(articleEl, item, sourceTag) {
+    if (!articleEl?.isConnected) return;
+    restoreArticleAsAllowed(articleEl, item, sourceTag);
     syncBadgeCount();
     updateHiddenStreakIndicators();
   }
@@ -650,19 +654,7 @@
       const meta = processedArticles.get(node);
       const elItem = meta?.item || extractTweetData(node);
       if (elItem && itemMatchesHandle(elItem, normTarget)) {
-        if (elItem.tweetId) {
-          userExpandedTweetIds.delete(elItem.tweetId);
-          streakRevealedTweetIds.delete(elItem.tweetId);
-          pageFilteredTweetIds.delete(elItem.tweetId);
-        }
-        restoreArticle(node);
-        ensureReportButton(node, elItem);
-        processedArticles.set(node, {
-          fingerprint: meta?.fingerprint || computeFingerprint(elItem),
-          item: elItem,
-          result: { verdict: 'ALLOW', scope: 'TWEET', source: sourceTag },
-          renderedKey: 'allow',
-        });
+        restoreArticleAsAllowed(node, elItem, sourceTag, meta?.fingerprint);
       }
     });
     syncBadgeCount();
@@ -1703,14 +1695,18 @@
     updateHiddenStreakIndicators();
   }
 
-  function handleRouteChangeIfNeeded() {
-    const curPath = window.location.pathname;
-    if (curPath === lastPathname) return false;
-    lastPathname = curPath;
+  function resetDetailPageContext() {
     cachedFocalPost = null;
     cachedFocalArticleEl = null;
     cachedDiscoverMoreEl = null;
     cachedDiscoverMorePos = null;
+  }
+
+  function handleRouteChangeIfNeeded() {
+    const curPath = window.location.pathname;
+    if (curPath === lastPathname) return false;
+    lastPathname = curPath;
+    resetDetailPageContext();
     pageFilteredTweetIds.clear();
     streakRevealedTweetIds.clear();
     closeFloatingMenu();
@@ -1743,10 +1739,7 @@
   function resolvePageContext(articlesForFullScan = null) {
     const focalTweetId = getFocalTweetId();
     if (!focalTweetId) {
-      cachedFocalPost = null;
-      cachedFocalArticleEl = null;
-      cachedDiscoverMoreEl = null;
-      cachedDiscoverMorePos = null;
+      resetDetailPageContext();
       return {
         focalTweetId: null,
         focalArticleEl: null,
@@ -1758,10 +1751,7 @@
     }
 
     if (cachedFocalPost && cachedFocalPost.tweetId !== focalTweetId) {
-      cachedFocalPost = null;
-      cachedFocalArticleEl = null;
-      cachedDiscoverMoreEl = null;
-      cachedDiscoverMorePos = null;
+      resetDetailPageContext();
     }
 
     if (cachedFocalArticleEl && !cachedFocalArticleEl.isConnected) {
@@ -1820,7 +1810,7 @@
     };
   }
 
-  function getArticleReplyContext(articleEl, pageCtx, articleIndex = -1, focalIndex = -1) {
+  function getArticleReplyContext(articleEl, pageCtx) {
     const { focalTweetId, focalArticleEl, discoverMoreEl, discoverMorePos } = pageCtx;
     if (!focalTweetId) return {};
     let inDiscoverMore = false;
@@ -1845,20 +1835,17 @@
       if (articleEl === focalArticleEl) {
         return { focalTweetId, afterFocal: false, inDiscoverMore: false };
       }
-      let isAfter = false;
-      if (typeof focalArticleEl.compareDocumentPosition === 'function') {
-        isAfter = Boolean(focalArticleEl.compareDocumentPosition(articleEl) & Node.DOCUMENT_POSITION_FOLLOWING);
-      } else if (articleIndex >= 0 && focalIndex >= 0) {
-        isAfter = articleIndex > focalIndex;
-      }
+      const isAfter =
+        typeof focalArticleEl.compareDocumentPosition === 'function' &&
+        Boolean(focalArticleEl.compareDocumentPosition(articleEl) & Node.DOCUMENT_POSITION_FOLLOWING);
       return { focalTweetId, afterFocal: isAfter, inDiscoverMore: false };
     }
     const afterFocal = Boolean(cachedFocalPost && cachedFocalPost.tweetId === focalTweetId);
     return { focalTweetId, afterFocal, inDiscoverMore: false };
   }
 
-  function extractTweetWithContext(articleEl, pageCtx, selfHandle, articleIndex = -1, focalIndex = -1, fallbackItem = null) {
-    const replyCtx = getArticleReplyContext(articleEl, pageCtx, articleIndex, focalIndex);
+  function extractTweetWithContext(articleEl, pageCtx, selfHandle, fallbackItem = null) {
+    const replyCtx = getArticleReplyContext(articleEl, pageCtx);
     const item =
       extractTweetData(
         articleEl,
@@ -1903,7 +1890,7 @@
 
   function processArticle(
     articleEl,
-    { forceReprocess = false, reapplyOnly = false, allowAsyncAi = true, pageCtx = null, articleIndex = -1, focalIndex = -1 } = {}
+    { forceReprocess = false, reapplyOnly = false, allowAsyncAi = true, pageCtx = null } = {}
   ) {
     if (!articleEl?.isConnected || !currentSettings.enabled || !localRulesReady) {
       return { changedVisibility: false };
@@ -1919,8 +1906,6 @@
       articleEl,
       ctx,
       selfHandle,
-      articleIndex,
-      focalIndex,
       reapplyOnly ? existing?.item || null : null
     );
     if (!item) return { changedVisibility: false };
@@ -2003,16 +1988,13 @@
 
     const articles = Array.from(document.querySelectorAll(ARTICLE_SELECTOR));
     const pageCtx = resolvePageContext(articles);
-    const focalIndex = pageCtx.focalArticleEl ? articles.indexOf(pageCtx.focalArticleEl) : -1;
 
-    for (let i = 0; i < articles.length; i += 1) {
-      processArticle(articles[i], {
+    for (const art of articles) {
+      processArticle(art, {
         forceReprocess,
         reapplyOnly,
         allowAsyncAi: true,
         pageCtx,
-        articleIndex: i,
-        focalIndex,
       });
     }
 
@@ -2282,10 +2264,7 @@
       activeFloatingMenuKey = null;
       lastSyncedBadgeCount = -1;
       lastThemeAttr = '';
-      cachedFocalPost = null;
-      cachedFocalArticleEl = null;
-      cachedDiscoverMoreEl = null;
-      cachedDiscoverMorePos = null;
+      resetDetailPageContext();
     };
 
     const localPromise = hydrateFromLocalStorage();
