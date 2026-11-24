@@ -730,3 +730,96 @@ test('content.js settles async AI slop hits by viewport zone: smooth collapse in
 
   harness.cleanup();
 });
+
+test('content.js excludes 发现更多 / Discover more posts from reply classification even after virtual-list unmount of heading and focal tweet', async () => {
+  const batches = [];
+  const harness = createHarnessDom({
+    pathname: '/op_user/status/550000',
+    storageData: {
+      antislop_settings: { enabled: true, displayMode: 'hide', aiScanScope: 'replies' },
+      antislop_blacklist: [],
+    },
+    onMessage: (msg) => {
+      if (msg.type === 'GET_CLIENT_SNAPSHOT') {
+        return makeSnapshot({ settings: { enabled: true, displayMode: 'hide', aiScanScope: 'replies' } });
+      }
+      if (msg.type === 'CLASSIFY_BATCH') {
+        batches.push(msg.items);
+        return {
+          results: msg.items.map((it) => ({
+            tweetId: it.tweetId,
+            handle: it.handle,
+            matchedHandle: it.handle,
+            verdict: 'ALLOW',
+            scope: 'TWEET',
+            source: 'ai_model',
+          })),
+        };
+      }
+      return { ok: true };
+    },
+  });
+
+  const focal = harness.makeTweetCell({ tweetId: '550000', handle: 'op_user', text: 'Focal discussion post' });
+  focal.cell.style.transform = 'translateY(0px)';
+
+  const realReply = harness.makeTweetCell({ tweetId: '550001', handle: 'real_replier', text: 'Thoughtful reply to focal post' });
+  realReply.cell.style.transform = 'translateY(300px)';
+
+  const discoverCell = harness.docObj.createElement('div');
+  discoverCell.setAttribute('data-testid', 'cellInnerDiv');
+  discoverCell.style.transform = 'translateY(600px)';
+  const discoverTitle = harness.docObj.createElement('span');
+  discoverTitle.textContent = '发现更多';
+  const discoverSub = harness.docObj.createElement('span');
+  discoverSub.textContent = '来自整个 X';
+  discoverCell.appendChild(discoverTitle);
+  discoverCell.appendChild(discoverSub);
+
+  const discoverPost1 = harness.makeTweetCell({ tweetId: '550002', handle: 'rockstargames', text: 'Unrelated game promo post' });
+  discoverPost1.cell.style.transform = 'translateY(800px)';
+
+  harness.timeline.appendChild(focal.cell);
+  harness.timeline.appendChild(realReply.cell);
+  harness.timeline.appendChild(discoverCell);
+  harness.timeline.appendChild(discoverPost1.cell);
+
+  harness.boot();
+  await new Promise((r) => setTimeout(r, 90));
+
+  assert.equal(batches.length, 1);
+  assert.deepEqual(
+    Array.from(batches[0], (it) => it.tweetId),
+    ['550001']
+  );
+  assert.equal(batches[0][0].isReply, true);
+  assert.equal(batches[0][0].parentText, 'Focal discussion post');
+
+  // Simulate virtual-list scroll down: unmount focal tweet & Discover More heading
+  focal.cell.remove();
+  discoverCell.remove();
+  await new Promise((r) => queueMicrotask(r));
+
+  const discoverPost2 = harness.makeTweetCell({ tweetId: '550003', handle: 'kevinhou22', text: 'Deeper Discover more recommendation' });
+  discoverPost2.cell.style.transform = 'translateY(1400px)';
+  harness.timeline.appendChild(discoverPost2.cell);
+  await new Promise((r) => setTimeout(r, 90));
+
+  assert.equal(batches.length, 1, 'Deeper Discover more post must NOT be misclassified as a reply');
+
+  // Simulate scrolling back slightly above the persisted heading boundary while focal & heading remain unmounted
+  const earlierReply = harness.makeTweetCell({ tweetId: '550004', handle: 'earlier_replier', text: 'Earlier reply above Discover more' });
+  earlierReply.cell.style.transform = 'translateY(420px)';
+  harness.timeline.appendChild(earlierReply.cell);
+  await new Promise((r) => setTimeout(r, 90));
+
+  assert.equal(batches.length, 2);
+  assert.deepEqual(
+    Array.from(batches[1], (it) => it.tweetId),
+    ['550004']
+  );
+  assert.equal(batches[1][0].isReply, true);
+  assert.equal(batches[1][0].parentText, 'Focal discussion post');
+
+  harness.cleanup();
+});

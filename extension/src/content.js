@@ -78,6 +78,7 @@
   let cachedFocalPost = null;
   let cachedFocalArticleEl = null;
   let cachedDiscoverMoreEl = null;
+  let cachedDiscoverMorePos = null;
   let cachedSelfHandle = '';
   let lastThemeAttr = '';
   let bodyThemeObserver = null;
@@ -1686,6 +1687,7 @@
         for (const extra of collectCascadeSessionAccountTargets(acct, selfHandle, slopArticleSet)) {
           slopEntries.push(extra);
           slopArticleSet.add(extra.articleEl);
+          enqueueLocalInterceptReport(extra.item, extra.match);
         }
       }
     }
@@ -1708,6 +1710,7 @@
     cachedFocalPost = null;
     cachedFocalArticleEl = null;
     cachedDiscoverMoreEl = null;
+    cachedDiscoverMorePos = null;
     pageFilteredTweetIds.clear();
     streakRevealedTweetIds.clear();
     closeFloatingMenu();
@@ -1716,24 +1719,56 @@
     return true;
   }
 
+  function getElementVirtualPosition(node) {
+    if (!node) return null;
+    const cell = node.closest?.('[data-testid="cellInnerDiv"]') || node;
+    const transformText =
+      (cell?.style && typeof cell.style.transform === 'string' && cell.style.transform) ||
+      cell?.getAttribute?.('style') ||
+      '';
+    const m = transformText.match(/translateY\(\s*(-?\d+(?:\.\d+)?)px\s*\)/i);
+    if (m) {
+      const y = Number(m[1]);
+      if (Number.isFinite(y)) return { kind: 'translateY', y };
+    }
+    if (typeof node.getBoundingClientRect === 'function') {
+      const rect = node.getBoundingClientRect();
+      if (rect && Number.isFinite(rect.top)) {
+        return { kind: 'docY', y: rect.top + (window.scrollY || 0) };
+      }
+    }
+    return null;
+  }
+
   function resolvePageContext(articlesForFullScan = null) {
     const focalTweetId = getFocalTweetId();
     if (!focalTweetId) {
       cachedFocalPost = null;
       cachedFocalArticleEl = null;
       cachedDiscoverMoreEl = null;
-      return { focalTweetId: null, focalArticleEl: null, discoverMoreEl: null, newlyFoundFocal: false };
+      cachedDiscoverMorePos = null;
+      return {
+        focalTweetId: null,
+        focalArticleEl: null,
+        discoverMoreEl: null,
+        discoverMorePos: null,
+        newlyFoundFocal: false,
+        newlyFoundDiscoverMore: false,
+      };
     }
 
     if (cachedFocalPost && cachedFocalPost.tweetId !== focalTweetId) {
       cachedFocalPost = null;
       cachedFocalArticleEl = null;
       cachedDiscoverMoreEl = null;
+      cachedDiscoverMorePos = null;
     }
 
     if (cachedFocalArticleEl && !cachedFocalArticleEl.isConnected) {
       cachedFocalArticleEl = null;
     }
+    const hadDiscoverMoreBefore = Boolean(cachedDiscoverMoreEl || cachedDiscoverMorePos);
+    let newlyFoundDiscoverMore = false;
     if (cachedDiscoverMoreEl && !cachedDiscoverMoreEl.isConnected) {
       cachedDiscoverMoreEl = null;
     }
@@ -1758,13 +1793,18 @@
       }
     }
 
-    if (!cachedDiscoverMoreEl) {
+    if (cachedDiscoverMoreEl) {
+      const pos = getElementVirtualPosition(cachedDiscoverMoreEl);
+      if (pos) cachedDiscoverMorePos = pos;
+    } else {
       const col = document.querySelector('[data-testid="primaryColumn"]') || document;
       const headingCandidates = col.querySelectorAll('h2, [role="heading"], [data-testid="cellInnerDiv"] span');
       for (const node of headingCandidates) {
         if (node.closest?.(ARTICLE_SELECTOR)) continue;
         if (isDiscoverMoreHeadingText(node.textContent || '')) {
           cachedDiscoverMoreEl = node;
+          cachedDiscoverMorePos = getElementVirtualPosition(node) || cachedDiscoverMorePos;
+          if (!hadDiscoverMoreBefore) newlyFoundDiscoverMore = true;
           break;
         }
       }
@@ -1774,18 +1814,30 @@
       focalTweetId,
       focalArticleEl: cachedFocalArticleEl,
       discoverMoreEl: cachedDiscoverMoreEl,
+      discoverMorePos: cachedDiscoverMorePos,
       newlyFoundFocal,
+      newlyFoundDiscoverMore,
     };
   }
 
   function getArticleReplyContext(articleEl, pageCtx, articleIndex = -1, focalIndex = -1) {
-    const { focalTweetId, focalArticleEl, discoverMoreEl } = pageCtx;
+    const { focalTweetId, focalArticleEl, discoverMoreEl, discoverMorePos } = pageCtx;
     if (!focalTweetId) return {};
-    const inDiscoverMore = Boolean(
+    let inDiscoverMore = false;
+    if (
       discoverMoreEl &&
-        typeof discoverMoreEl.compareDocumentPosition === 'function' &&
-        (discoverMoreEl.compareDocumentPosition(articleEl) & Node.DOCUMENT_POSITION_FOLLOWING)
-    );
+      discoverMoreEl.isConnected !== false &&
+      typeof discoverMoreEl.compareDocumentPosition === 'function'
+    ) {
+      inDiscoverMore = Boolean(discoverMoreEl.compareDocumentPosition(articleEl) & Node.DOCUMENT_POSITION_FOLLOWING);
+    } else if (!focalArticleEl && discoverMorePos) {
+      const artPos = getElementVirtualPosition(articleEl);
+      if (discoverMorePos.kind === 'translateY' && artPos?.kind === 'translateY') {
+        inDiscoverMore = artPos.y > discoverMorePos.y;
+      } else if (discoverMorePos.kind === 'docY' && artPos?.kind === 'docY') {
+        inDiscoverMore = artPos.y >= discoverMorePos.y - 20;
+      }
+    }
     if (inDiscoverMore) {
       return { focalTweetId, afterFocal: false, inDiscoverMore: true };
     }
@@ -1916,8 +1968,8 @@
       applyDecision(articleEl, item, resolved, fingerprint, { animate: false });
     }
 
+    removeArticleFromPendingQueue(articleEl);
     if (allowAsyncAi && canQueryAi(item)) {
-      removeArticleFromPendingQueue(articleEl);
       pendingQueue.set(`${item.tweetId}:${fingerprint}`, { articleEl, item, fingerprint });
       if (!flushTimer) {
         flushTimer = setTimeout(flushQueue, AI_QUEUE_DEBOUNCE_MS);
@@ -2118,6 +2170,7 @@
       }
 
       let hasExternal = false;
+      let addedNonArticleNode = false;
       const dirtyArticles = new Set();
 
       for (const m of mutations) {
@@ -2136,13 +2189,12 @@
           if (!node || node.nodeType !== 1 || isOwnUiNode(node)) continue;
           if (node.matches?.(ARTICLE_SELECTOR)) {
             dirtyArticles.add(node);
-          } else if (node.querySelectorAll) {
-            node.querySelectorAll(ARTICLE_SELECTOR).forEach((art) => dirtyArticles.add(art));
-          }
-          if (cachedDiscoverMoreEl == null && getFocalTweetId() && !node.closest?.(ARTICLE_SELECTOR)) {
-            const text = node.textContent || '';
-            if (text && text.length < 40 && isDiscoverMoreHeadingText(text)) {
-              cachedDiscoverMoreEl = node;
+          } else {
+            if (!node.closest?.(ARTICLE_SELECTOR)) {
+              addedNonArticleNode = true;
+            }
+            if (node.querySelectorAll) {
+              node.querySelectorAll(ARTICLE_SELECTOR).forEach((art) => dirtyArticles.add(art));
             }
           }
         }
@@ -2156,13 +2208,28 @@
           const res = processArticle(art, { forceReprocess: false, allowAsyncAi: true, pageCtx });
           if (res?.changedVisibility) anyVisibilityChanged = true;
         }
-        if (pageCtx.newlyFoundFocal) {
+        if (pageCtx.newlyFoundFocal || pageCtx.newlyFoundDiscoverMore) {
           scanTweets(true);
         } else if (anyVisibilityChanged && getFocalTweetId()) {
           updateHiddenStreakIndicators();
         }
-      } else if (hasExternal && (!localRulesReady || (getFocalTweetId() && !cachedFocalArticleEl))) {
-        scheduleScan();
+      } else {
+        if (
+          addedNonArticleNode &&
+          localRulesReady &&
+          currentSettings.enabled &&
+          getFocalTweetId() &&
+          !cachedDiscoverMoreEl
+        ) {
+          const pageCtx = resolvePageContext();
+          if (pageCtx.newlyFoundFocal || pageCtx.newlyFoundDiscoverMore) {
+            scanTweets(true);
+            return;
+          }
+        }
+        if (hasExternal && (!localRulesReady || (getFocalTweetId() && !cachedFocalArticleEl))) {
+          scheduleScan();
+        }
       }
     });
     observer.observe(document.documentElement || document, { childList: true, subtree: true });
@@ -2218,6 +2285,7 @@
       cachedFocalPost = null;
       cachedFocalArticleEl = null;
       cachedDiscoverMoreEl = null;
+      cachedDiscoverMorePos = null;
     };
 
     const localPromise = hydrateFromLocalStorage();

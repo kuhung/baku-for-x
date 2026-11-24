@@ -128,7 +128,13 @@ test('extractTweetData extracts tweetId, handle, text, publishedAt, isVerified, 
   assert.equal(discoverMoreData.isReply, false);
 
   assert.equal(isDiscoverMoreHeadingText('Discover more'), true);
+  assert.equal(isDiscoverMoreHeadingText('Sourced from across X'), true);
+  assert.equal(isDiscoverMoreHeadingText('发现更多'), true);
   assert.equal(isDiscoverMoreHeadingText('更多发现'), true);
+  assert.equal(isDiscoverMoreHeadingText('来自整个 X'), true);
+  assert.equal(isDiscoverMoreHeadingText('來自整個 X'), true);
+  assert.equal(isDiscoverMoreHeadingText('發現更多'), true);
+  assert.equal(isDiscoverMoreHeadingText('發掘更多'), true);
   assert.equal(isDiscoverMoreHeadingText('更多發現'), true);
   assert.equal(isDiscoverMoreHeadingText('探索更多'), true);
   assert.equal(isDiscoverMoreHeadingText('もっと見つける'), true);

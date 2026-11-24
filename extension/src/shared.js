@@ -353,7 +353,9 @@
    */
   function isDiscoverMoreHeadingText(text) {
     if (typeof text !== 'string') return false;
-    return /^(?:Discover more|更多发现|更多發現|探索更多|もっと見つける|더 찾아보기)$/i.test(text.trim());
+    return /^(?:Discover more|Sourced from across X|发现更多|更多发现|来自整个\s*X|精选自整个\s*X|發現更多|發掘更多|更多發現|探索更多|來自整個\s*X|精選自整個\s*X|もっと見つける|더 찾아보기)$/i.test(
+      text.trim()
+    );
   }
 
   function evaluateLocalRules(item, lists = {}, options = {}) {
