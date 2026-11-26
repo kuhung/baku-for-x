@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>静貘 Baku for X Slop：X（Twitter）屏蔽 AI 水帖与评论区过滤插件</title>
-  <meta name="description" content="静貘（Baku for X Slop）是一款开源 Chrome 扩展，在 X（Twitter）网页端过滤评论区与时间线里的 AI 模板回复、水帖和推广引流，支持无痕隐藏、毛玻璃遮罩、单条放行与自建后端。">
+  <meta name="description" content="静貘（Baku for X Slop）是一款开源 Chrome / Edge 扩展，在 X（Twitter）网页端过滤评论区与时间线里的 AI 模板回复、水帖和推广引流，支持无痕隐藏、毛玻璃遮罩、单条放行与自建后端。">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://baku.kuhung.me/">
 
@@ -18,7 +18,7 @@
 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="静貘 Baku for X Slop：X（Twitter）屏蔽 AI 水帖与评论区过滤插件">
-  <meta name="twitter:description" content="开源 Chrome 扩展：在 X 网页端过滤 AI 模板回复、水帖和推广引流，支持单条放行、本机名单与自建 Worker。">
+  <meta name="twitter:description" content="开源 Chrome / Edge 扩展：在 X 网页端过滤 AI 模板回复、水帖和推广引流，支持单条放行、本机名单与自建 Worker。">
   <meta name="twitter:image" content="https://baku.kuhung.me/assets/baku-hero-banner.png">
 
   <link rel="stylesheet" href="/styles.css">
@@ -35,13 +35,16 @@
         "name": "Baku for X Slop",
         "alternateName": "静貘",
         "applicationCategory": "BrowserApplication",
-        "operatingSystem": "Chrome, Chromium",
+        "operatingSystem": "Chrome, Microsoft Edge, Chromium",
         "softwareVersion": "0.2.3",
         "url": "https://baku.kuhung.me/",
-        "installUrl": "https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad",
+        "installUrl": [
+          "https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad",
+          "https://microsoftedge.microsoft.com/addons/detail/aidahmmeijkeljnfamincjidceplhkje"
+        ],
         "inLanguage": ["zh-CN", "zh-TW"],
         "license": "https://github.com/kuhung/baku-for-x/blob/main/LICENSE",
-        "description": "开源 Chrome 扩展，用于在 X (Twitter) 网页端过滤评论区与时间线里的 AI 模板回复、水帖和推广引流，默认无痕隐藏，支持单条放行、本机名单与开源自建。",
+        "description": "开源 Chrome / Edge 扩展，用于在 X (Twitter) 网页端过滤评论区与时间线里的 AI 模板回复、水帖和推广引流，默认无痕隐藏，支持单条放行、本机名单与开源自建。",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -103,11 +106,12 @@
     <section class="hero">
       <div class="container">
         <div class="hero-copy">
-          <span class="eyebrow">开源 Chrome 扩展 · 简体 / 繁体中文 · 默认无痕隐藏</span>
+          <span class="eyebrow">开源 Chrome / Edge 扩展 · 简体 / 繁体中文 · 默认无痕隐藏</span>
           <h1>吞掉 X 上的水帖，还你清净</h1>
           <p class="hero-sub">在 X（Twitter）网页端过滤评论区与时间线里的 AI 模板回复、复制式捧场和推广引流帖。安装即用，支持单条放行纠错、本机黑白名单、五阶段静貘成长立绘与开源自建。</p>
           <div class="hero-cta">
-            <a class="btn btn-primary btn-lg" href="https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad" target="_blank" rel="noopener noreferrer">前往 Chrome 应用商店安装</a>
+            <a class="btn btn-primary btn-lg" href="https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad" target="_blank" rel="noopener noreferrer">前往 Chrome 商店安装</a>
+            <a class="btn btn-secondary btn-lg" href="https://microsoftedge.microsoft.com/addons/detail/aidahmmeijkeljnfamincjidceplhkje" target="_blank" rel="noopener noreferrer">前往 Edge 商店安装</a>
             <a class="btn btn-secondary btn-lg" href="https://github.com/kuhung/baku-for-x" target="_blank" rel="noopener noreferrer">查看 GitHub 开源仓库</a>
           </div>
           <div class="hero-meta">
@@ -254,9 +258,12 @@
         <div class="cta-box">
           <div>
             <h2>安装静貘，让 X 评论区恢复安静</h2>
-            <p>Chrome 应用商店一键安装开箱即用，或在 GitHub 获取完整 MIT 开源代码与 Worker 后端。</p>
+            <p>Chrome / Edge 应用商店一键安装开箱即用，或在 GitHub 获取完整 MIT 开源代码与 Worker 后端。</p>
           </div>
-          <a class="btn btn-primary btn-lg" href="https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad" target="_blank" rel="noopener noreferrer">添加到 Chrome</a>
+          <div class="hero-cta" style="margin-bottom:0">
+            <a class="btn btn-primary btn-lg" href="https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad" target="_blank" rel="noopener noreferrer">添加到 Chrome</a>
+            <a class="btn btn-secondary btn-lg" href="https://microsoftedge.microsoft.com/addons/detail/aidahmmeijkeljnfamincjidceplhkje" target="_blank" rel="noopener noreferrer">添加到 Edge</a>
+          </div>
         </div>
       </div>
     </section>
@@ -267,6 +274,7 @@
       <span>静貘 · Baku for X Slop（MIT 开源协议，与 X / Twitter 无隶属关系）</span>
       <nav class="footer-links" aria-label="Footer">
         <a href="https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad" target="_blank" rel="noopener noreferrer">Chrome 应用商店</a>
+        <a href="https://microsoftedge.microsoft.com/addons/detail/aidahmmeijkeljnfamincjidceplhkje" target="_blank" rel="noopener noreferrer">Edge 扩展商店</a>
         <a href="https://github.com/kuhung/baku-for-x" target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
         <a href="https://kuhung.me/baku-privacy/" target="_blank" rel="noopener noreferrer">隐私政策</a>
         <a href="mailto:hi@kuhung.me">联系邮箱</a>

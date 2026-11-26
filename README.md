@@ -2,7 +2,7 @@
 
 ![静貘 · Baku 品牌头图](docs/assets/baku-hero-banner.png)
 
-**吞掉 X 上的水帖，还你清净。** 静貘 · Baku（Baku for X Slop）是一款开源 Chrome 扩展，用于在 X (Twitter) 网页端隐藏时间线和评论区里的 AI 模板回复、复制式捧场和推广引流帖。
+**吞掉 X 上的水帖，还你清净。** 静貘 · Baku（Baku for X Slop）是一款开源 Chrome / Edge 扩展，用于在 X (Twitter) 网页端隐藏时间线和评论区里的 AI 模板回复、复制式捧场和推广引流帖。
 
 取名「静貘」（Baku），谐音「静默」，源自夜里吃掉噩梦的食梦貘意象。安装后打开 X 即可生效，命中的水帖默认直接无痕隐藏，只更新浏览器右上角图标左上的无框数字与鼻尖星光。日常默认按单条帖子判定，同账号连续命中多条或被多人屏蔽后再经复核升入共享黑名单，避免普通账号因偶发内容被整号误拦。
 
@@ -13,6 +13,10 @@
 ### Chrome 应用商店（推荐）
 
 前往 Chrome 应用商店一键安装：**[Baku for X Slop](https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad)**
+
+### Microsoft Edge 扩展商店（推荐）
+
+前往 Microsoft Edge Add-ons 一键安装：**[Baku for X Slop](https://microsoftedge.microsoft.com/addons/detail/aidahmmeijkeljnfamincjidceplhkje)**
 
 安装后打开 `https://x.com` 即可生效（默认已接入公共共享服务，零配置开箱可用）。
 
