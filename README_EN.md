@@ -2,7 +2,7 @@
 
 ![Baku for X Slop Banner](docs/assets/baku-hero-banner.png)
 
-**Quietly clear X slop and keep the real conversation.** Baku (`Baku for X Slop` / 静貘) is an open-source Chrome extension for `x.com` and `twitter.com` that hides AI-generated template replies, copy-paste engagement bait, and promotional spam across reply sections and timelines.
+**Quietly clear X slop and keep the real conversation.** Baku (`Baku for X Slop` / 静貘) is an open-source Chrome and Microsoft Edge extension for `x.com` and `twitter.com` that hides AI-generated template replies, copy-paste engagement bait, and promotional spam across reply sections and timelines.
 
 Named after the mythological dream-eating Baku (and a Chinese homophone for "silent"), the extension hides matched posts silently by default and updates an unobtrusive counter badge with a subtle nose-star cue on the toolbar icon. Everyday classification evaluates individual posts (`TWEET` scope) first, and only escalates an account to the shared blocklist after repeated hits or multi-user review.
 
@@ -15,6 +15,10 @@ Named after the mythological dream-eating Baku (and a Chinese homophone for "sil
 ### Chrome Web Store
 
 Install directly from the Chrome Web Store: **[Baku for X Slop](https://chromewebstore.google.com/detail/baku-%E9%9D%99%E8%B2%98-for-x/dkcjdiemeobepaahioaakahjijoigoad)**
+
+### Microsoft Edge Add-ons
+
+Install directly from Microsoft Edge Add-ons: **[Baku for X Slop](https://microsoftedge.microsoft.com/addons/detail/aidahmmeijkeljnfamincjidceplhkje)**
 
 After installing, open `https://x.com` to start filtering automatically with the default shared flywheel service (no account registration required).
 
